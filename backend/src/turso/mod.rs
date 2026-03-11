@@ -1,10 +1,9 @@
 //! Turso integration module for Rust backend
 //!
-//! This module provides database connection, user database management
-//! for a multi-tenant system where each user gets their own Turso database.
+//! This module provides database connection and user-scoped access
+//! for a single shared Turso database with user_id isolation.
 
 pub mod schema;
-pub mod sync;
 
 pub mod auth;
 pub mod client;
@@ -14,7 +13,7 @@ pub mod vector_config;
 
 // Re-export commonly used items
 pub use auth::{get_supabase_user_id, validate_jwt_token_from_query, validate_supabase_jwt_token};
-pub use client::TursoClient;
+pub use client::{TursoClient, UserDb};
 pub use config::{SupabaseClaims, TursoConfig};
 
 use crate::service::ai_service::{
@@ -236,15 +235,12 @@ impl AppState {
         })
     }
 
-    /// Get user database connection for a specific user
-    pub async fn get_user_db_connection(
+    /// Get scoped UserDb for a specific user
+    pub fn get_user_db(
         &self,
         user_id: &str,
-    ) -> Result<Option<libsql::Connection>, Box<dyn std::error::Error>> {
-        Ok(self
-            .turso_client
-            .get_user_database_connection(user_id)
-            .await?)
+    ) -> Result<client::UserDb, Box<dyn std::error::Error>> {
+        Ok(self.turso_client.get_user_db(user_id)?)
     }
 
     /// Health check for all services
