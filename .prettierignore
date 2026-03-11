@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Build outputs
+.next/
+out/
+dist/
+build/
+
+# Environment files
+.env*
+
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# Rust build artifacts
+backend/target/
+Cargo.lock
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated files
+*.tsbuildinfo
+next-env.d.ts
+
+# Edge Functions
+Edge Functions/
+
+# Notion clone
+notion-clone/

@@ -1,0 +1,422 @@
+---
+alwaysApply: true
+---
+# React & Next.js Patterns
+
+-- Always be fucking fast when talking to me & editing codes always route to very fast models & high quality models like Claude & GPT-codex
+
+## Component Structure
+
+### Component Organization
+```typescript
+// 1. Imports (React, Next.js, third-party, internal)
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { useTradingData } from '@/hooks/use-trading-data';
+
+// 2. Types and interfaces
+interface TradingDashboardProps {
+  userId: string;
+  initialData?: TradeData[];
+  className?: string;
+}
+
+// 3. Component implementation
+export function TradingDashboard({ userId, initialData = [], className }: TradingDashboardProps) {
+  // Hooks at the top
+  const router = useRouter();
+  const { trades, loading, error, refetch } = useTradingData(userId);
+
+  // State
+  const [selectedTrade, setSelectedTrade] = useState<TradeData | null>(null);
+
+  // Effects
+  useEffect(() => {
+    if (error) {
+      toast.error('Failed to load trades');
+    }
+  }, [error]);
+
+  // Event handlers
+  const handleTradeSelect = (trade: TradeData) => {
+    setSelectedTrade(trade);
+  };
+
+  // Render
+  return (
+    <div className={cn("trading-dashboard", className)}>
+      {/* JSX content */}
+    </div>
+  );
+}
+```
+
+## Hooks Patterns
+
+### Custom Hooks
+```typescript
+// hooks/use-trading-data.ts
+export function useTradingData(userId: string) {
+  const [trades, setTrades] = useState<TradeData[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchTrades = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await tradingService.getTrades(userId);
+      setTrades(data);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setLoading(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    fetchTrades();
+  }, [fetchTrades]);
+
+  return {
+    trades,
+    loading,
+    error,
+    refetch: fetchTrades,
+  };
+}
+```
+
+### Data Fetching with SWR
+```typescript
+// hooks/use-trades.ts
+import useSWR from 'swr';
+
+const fetcher = (url: string) => fetch(url).then(res => res.json());
+
+export function useTrades(userId: string) {
+  const { data, error, isLoading, mutate } = useSWR(
+    userId ? `/api/trades?userId=${userId}` : null,
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+    }
+  );
+
+  return {
+    trades: data || [],
+    loading: isLoading,
+    error,
+    refetch: mutate,
+  };
+}
+```
+
+## State Management
+
+### Context Pattern
+```typescript
+// contexts/TradingContext.tsx
+interface TradingContextType {
+  selectedTrade: TradeData | null;
+  setSelectedTrade: (trade: TradeData | null) => void;
+  trades: TradeData[];
+  addTrade: (trade: TradeData) => void;
+  updateTrade: (id: string, updates: Partial<TradeData>) => void;
+}
+
+const TradingContext = createContext<TradingContextType | undefined>(undefined);
+
+export function TradingProvider({ children }: { children: React.ReactNode }) {
+  const [selectedTrade, setSelectedTrade] = useState<TradeData | null>(null);
+  const [trades, setTrades] = useState<TradeData[]>([]);
+
+  const addTrade = useCallback((trade: TradeData) => {
+    setTrades(prev => [...prev, trade]);
+  }, []);
+
+  const updateTrade = useCallback((id: string, updates: Partial<TradeData>) => {
+    setTrades(prev => prev.map(trade =>
+      trade.id === id ? { ...trade, ...updates } : trade
+    ));
+  }, []);
+
+  const value = {
+    selectedTrade,
+    setSelectedTrade,
+    trades,
+    addTrade,
+    updateTrade,
+  };
+
+  return (
+    <TradingContext.Provider value={value}>
+      {children}
+    </TradingContext.Provider>
+  );
+}
+
+export function useTradingContext() {
+  const context = useContext(TradingContext);
+  if (!context) {
+    throw new Error('useTradingContext must be used within TradingProvider');
+  }
+  return context;
+}
+```
+
+## Form Handling
+
+### React Hook Form
+```typescript
+// components/TradeForm.tsx
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+
+const tradeSchema = z.object({
+  symbol: z.string().min(1, 'Symbol is required'),
+  quantity: z.number().positive('Quantity must be positive'),
+  price: z.number().positive('Price must be positive'),
+  type: z.enum(['stock', 'option', 'crypto']),
+});
+
+type TradeFormData = z.infer<typeof tradeSchema>;
+
+export function TradeForm({ onSubmit }: { onSubmit: (data: TradeFormData) => void }) {
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+    reset,
+  } = useForm<TradeFormData>({
+    resolver: zodResolver(tradeSchema),
+  });
+
+  const handleFormSubmit = async (data: TradeFormData) => {
+    try {
+      await onSubmit(data);
+      reset();
+      toast.success('Trade created successfully');
+    } catch (error) {
+      toast.error('Failed to create trade');
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
+      <div>
+        <label htmlFor="symbol">Symbol</label>
+        <input
+          {...register('symbol')}
+          id="symbol"
+          className={cn("input", errors.symbol && "error")}
+        />
+        {errors.symbol && <span className="error-text">{errors.symbol.message}</span>}
+      </div>
+
+      <Button type="submit" disabled={isSubmitting}>
+        {isSubmitting ? 'Creating...' : 'Create Trade'}
+      </Button>
+    </form>
+  );
+}
+```
+
+## Next.js App Router Patterns
+
+### Page Components
+```typescript
+// app/trades/page.tsx
+import { Suspense } from 'react';
+import { TradesList } from '@/components/trades/TradesList';
+import { TradesListSkeleton } from '@/components/trades/TradesListSkeleton';
+
+export default function TradesPage() {
+  return (
+    <div className="container mx-auto py-8">
+      <h1 className="text-3xl font-bold mb-8">Trades</h1>
+
+      <Suspense fallback={<TradesListSkeleton />}>
+        <TradesList />
+      </Suspense>
+    </div>
+  );
+}
+```
+
+### API Routes
+```typescript
+// app/api/trades/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
+import { tradingService } from '@/lib/services/trading-service';
+
+export async function GET(request: NextRequest) {
+  try {
+    const supabase = createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const trades = await tradingService.getTrades(user.id);
+    return NextResponse.json({ trades });
+  } catch (error) {
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const trade = await tradingService.createTrade(user.id, body);
+
+    return NextResponse.json({ trade }, { status: 201 });
+  } catch (error) {
+    return NextResponse.json(
+      { error: 'Failed to create trade' },
+      { status: 400 }
+    );
+  }
+}
+```
+
+## UI Component Patterns
+
+### Compound Components
+```typescript
+// components/ui/Card.tsx
+interface CardProps {
+  children: React.ReactNode;
+  className?: string;
+}
+
+interface CardHeaderProps {
+  children: React.ReactNode;
+  className?: string;
+}
+
+interface CardContentProps {
+  children: React.ReactNode;
+  className?: string;
+}
+
+const Card = ({ children, className }: CardProps) => (
+  <div className={cn("rounded-lg border bg-card", className)}>
+    {children}
+  </div>
+);
+
+const CardHeader = ({ children, className }: CardHeaderProps) => (
+  <div className={cn("flex flex-col space-y-1.5 p-6", className)}>
+    {children}
+  </div>
+);
+
+const CardContent = ({ children, className }: CardContentProps) => (
+  <div className={cn("p-6 pt-0", className)}>
+    {children}
+  </div>
+);
+
+Card.Header = CardHeader;
+Card.Content = CardContent;
+
+export { Card };
+```
+
+### Render Props Pattern
+```typescript
+// components/TradesList.tsx
+interface TradesListProps {
+  children: (trades: TradeData[], loading: boolean, error: Error | null) => React.ReactNode;
+}
+
+export function TradesList({ children }: TradesListProps) {
+  const { trades, loading, error } = useTrades();
+
+  return <>{children(trades, loading, error)}</>;
+}
+
+// Usage
+<TradesList>
+  {(trades, loading, error) => (
+    <div>
+      {loading && <div>Loading...</div>}
+      {error && <div>Error: {error.message}</div>}
+      {trades.map(trade => (
+        <TradeCard key={trade.id} trade={trade} />
+      ))}
+    </div>
+  )}
+</TradesList>
+```
+
+## Performance Optimization
+
+### Memoization
+```typescript
+// Use React.memo for expensive components
+export const TradeCard = React.memo(({ trade }: { trade: TradeData }) => {
+  return (
+    <div className="trade-card">
+      <h3>{trade.symbol}</h3>
+      <p>${trade.price}</p>
+    </div>
+  );
+});
+
+// Use useMemo for expensive calculations
+const expensiveCalculation = useMemo(() => {
+  return trades.reduce((total, trade) => total + trade.value, 0);
+}, [trades]);
+
+// Use useCallback for event handlers passed to children
+const handleTradeUpdate = useCallback((id: string, updates: Partial<TradeData>) => {
+  updateTrade(id, updates);
+}, [updateTrade]);
+```
+
+### Code Splitting
+```typescript
+// Lazy load heavy components
+const TradingChart = lazy(() => import('@/components/TradingChart'));
+
+export function TradingDashboard() {
+  return (
+    <div>
+      <Suspense fallback={<div>Loading chart...</div>}>
+        <TradingChart />
+      </Suspense>
+    </div>
+  );
+}
+```
+
+## Best Practices
+
+1. **Use TypeScript for all components**
+2. **Prefer function components over class components**
+3. **Use custom hooks for reusable logic**
+4. **Implement proper error boundaries**
+5. **Use React.memo, useMemo, and useCallback judiciously**
+6. **Follow the single responsibility principle**
+7. **Use semantic HTML elements**
+8. **Implement proper loading and error states**
+9. **Use Next.js App Router patterns**
+10. **Optimize for Core Web Vitals**

@@ -1,0 +1,258 @@
+---
+globs: *.ts,*.tsx
+description: TypeScript coding standards and conventions for the Tradistry project
+---
+
+-- Always be fucking fast when talking to me & editing codes always route to very fast models & high quality models like Claude & GPT-codex
+
+# TypeScript Standards & Conventions
+
+## Configuration
+- **Strict Mode**: Always enabled (`"strict": true` in tsconfig.json)
+- **No `any` Types**: Never use `any` unless absolutely necessary with documented justification
+- **Path Mapping**: Use `@/*` for absolute imports from project root
+
+## Type Definitions
+
+### Interface vs Type
+```typescript
+// Prefer interfaces for object shapes
+interface TradeNote {
+  id: string;
+  name: string;
+  content: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Use types for unions, primitives, and computed types
+type TradeType = 'stock' | 'option' | 'crypto';
+type TradeStatus = 'open' | 'closed' | 'pending';
+```
+
+### Generic Types
+```typescript
+// Use descriptive generic names
+interface ApiResponse<TData> {
+  success: boolean;
+  data: TData | null;
+  message?: string;
+}
+
+// Prefer constraints for better type safety
+interface Repository<TEntity extends { id: string }> {
+  findById(id: string): Promise<TEntity | null>;
+  save(entity: TEntity): Promise<TEntity>;
+}
+```
+
+## Function Signatures
+
+### Async Functions
+```typescript
+// Always specify return types for async functions
+async function fetchTradeData(symbol: string): Promise<TradeData | null> {
+  // implementation
+}
+
+// Use proper error handling
+async function createTrade(trade: CreateTradeRequest): Promise<Result<Trade, Error>> {
+  try {
+    const result = await tradeService.create(trade);
+    return { success: true, data: result };
+  } catch (error) {
+    return { success: false, error: error as Error };
+  }
+}
+```
+
+### Event Handlers
+```typescript
+// Use proper event types
+const handleTradeSubmit = (event: React.FormEvent<HTMLFormElement>): void => {
+  event.preventDefault();
+  // implementation
+};
+
+// For custom events, define proper types
+interface TradeEvent {
+  type: 'trade_created' | 'trade_updated' | 'trade_deleted';
+  payload: Trade;
+}
+```
+
+## React Patterns
+
+### Component Props
+```typescript
+// Define props interfaces
+interface TradingDashboardProps {
+  userId: string;
+  initialData?: TradeData[];
+  onTradeUpdate?: (trade: Trade) => void;
+  className?: string;
+}
+
+// Use React.FC sparingly, prefer direct function declarations
+export function TradingDashboard({
+  userId,
+  initialData = [],
+  onTradeUpdate,
+  className
+}: TradingDashboardProps) {
+  // implementation
+}
+```
+
+### Hooks
+```typescript
+// Custom hooks should return objects, not arrays (for better naming)
+export function useTradingData(userId: string) {
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  return {
+    trades,
+    loading,
+    error,
+    refetch: () => { /* implementation */ }
+  };
+}
+```
+
+## Error Handling
+
+### Result Pattern
+```typescript
+type Result<T, E = Error> =
+  | { success: true; data: T }
+  | { success: false; error: E };
+
+// Use Result pattern for operations that can fail
+async function validateTrade(trade: Trade): Promise<Result<Trade, ValidationError>> {
+  if (!trade.symbol) {
+    return { success: false, error: new ValidationError('Symbol is required') };
+  }
+  return { success: true, data: trade };
+}
+```
+
+### Custom Error Types
+```typescript
+class TradingError extends Error {
+  constructor(
+    message: string,
+    public code: string,
+    public details?: Record<string, unknown>
+  ) {
+    super(message);
+    this.name = 'TradingError';
+  }
+}
+
+class ValidationError extends TradingError {
+  constructor(message: string, field?: string) {
+    super(message, 'VALIDATION_ERROR', { field });
+  }
+}
+```
+
+## Database Types
+
+### Drizzle Schema Types
+```typescript
+// Define schema with proper types
+export const tradesTable = pgTable('trades', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull(),
+  symbol: varchar('symbol', { length: 10 }).notNull(),
+  quantity: decimal('quantity', { precision: 10, scale: 2 }).notNull(),
+  price: decimal('price', { precision: 10, scale: 2 }).notNull(),
+  type: tradeTypeEnum('type').notNull(),
+  status: tradeStatusEnum('status').notNull().default('open'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Infer types from schema
+export type Trade = typeof tradesTable.$inferSelect;
+export type NewTrade = typeof tradesTable.$inferInsert;
+```
+
+## API Types
+
+### Service Layer Types
+```typescript
+// Define request/response types
+interface CreateTradeRequest {
+  symbol: string;
+  quantity: number;
+  price: number;
+  type: TradeType;
+}
+
+interface TradeResponse {
+  id: string;
+  symbol: string;
+  quantity: string;
+  price: string;
+  type: TradeType;
+  status: TradeStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// API service methods
+interface TradingService {
+  createTrade(request: CreateTradeRequest): Promise<TradeResponse>;
+  getTrades(filters?: TradeFilters): Promise<TradeResponse[]>;
+  updateTrade(id: string, updates: Partial<CreateTradeRequest>): Promise<TradeResponse>;
+  deleteTrade(id: string): Promise<void>;
+}
+```
+
+## Utility Types
+
+### Common Patterns
+```typescript
+// Use utility types effectively
+type PartialTrade = Partial<Trade>;
+type TradeKeys = keyof Trade;
+type TradeWithoutId = Omit<Trade, 'id'>;
+type TradeWithOptionalId = TradeWithoutId & { id?: string };
+
+// Create branded types for better type safety
+type UserId = string & { readonly brand: unique symbol };
+type TradeId = string & { readonly brand: unique symbol };
+
+function createUserId(id: string): UserId {
+  return id as UserId;
+}
+```
+
+## Best Practices
+
+1. **Always use strict null checks**
+2. **Prefer `const` assertions for immutable data**
+3. **Use `satisfies` operator for type checking without widening**
+4. **Avoid `@ts-ignore` - fix the underlying issue**
+5. **Use `unknown` instead of `any` for truly unknown types**
+6. **Define proper JSDoc comments for public APIs**
+7. **Use `readonly` for immutable properties**
+8. **Prefer type guards for runtime type checking**
+
+## Code Organization
+
+```typescript
+// File structure for types
+// types/trading.ts
+export interface Trade { /* ... */ }
+export type TradeType = 'stock' | 'option' | 'crypto';
+
+// services/trading-service.ts
+import type { Trade, TradeType } from '@/types/trading';
+
+// components/TradingDashboard.tsx
+import type { Trade } from '@/types/trading';
+```

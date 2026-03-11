@@ -1,0 +1,442 @@
+---
+description: Authentication and security patterns for Supabase Auth integration
+---
+
+-- Always be fucking fast when talking to me & editing codes always route to very fast models & high quality models like Claude & GPT-codex
+
+# Authentication & Security Patterns
+
+## Authentication Architecture
+
+### Multi-Provider Support
+The system supports both Supabase Auth (primary) and Clerk (legacy) for migration purposes:
+
+```rust
+// Backend JWT validation with fallback
+async fn jwt_validator(
+    req: ServiceRequest,
+    credentials: BearerAuth,
+) -> Result<ServiceRequest, (actix_web::Error, ServiceRequest)> {
+    // Try Supabase JWT validation first
+    match validate_supabase_jwt_token(credentials.token(), &app_state.config.supabase).await {
+        Ok(claims) => {
+            req.extensions_mut().insert(claims);
+            Ok(req)
+        },
+        Err(AuthError::InvalidIssuer) | Err(AuthError::InvalidToken) => {
+            // Fallback to Clerk validation
+            match validate_jwt_token(credentials.token(), &app_state.config).await {
+                Ok(claims) => {
+                    req.extensions_mut().insert(claims);
+                    Ok(req)
+                },
+                Err(_) => {
+                    let error = AuthenticationError::from(config).into();
+                    Err((error, req))
+                }
+            }
+        },
+        Err(_) => {
+            let error = AuthenticationError::from(config).into();
+            Err((error, req))
+        }
+    }
+}
+```
+
+## Frontend Authentication
+
+### Supabase Client Setup
+```typescript
+// lib/supabase/client.ts
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true
+  }
+});
+```
+
+### Authentication Hooks
+```typescript
+// hooks/use-auth.ts
+import { useEffect, useState } from 'react';
+import { User, Session } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabase/client';
+
+export function useAuth() {
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const signIn = async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    return { data, error };
+  };
+
+  const signUp = async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+    });
+    return { data, error };
+  };
+
+  const signOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    return { error };
+  };
+
+  const resetPassword = async (email: string) => {
+    const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/update-password`,
+    });
+    return { data, error };
+  };
+
+  return {
+    user,
+    session,
+    loading,
+    signIn,
+    signUp,
+    signOut,
+    resetPassword,
+  };
+}
+```
+
+### Protected Route Component
+```typescript
+// components/auth/protected-route.tsx
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/hooks/use-auth';
+import { Loader2 } from 'lucide-react';
+
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+  redirectTo?: string;
+}
+
+export function ProtectedRoute({
+  children,
+  redirectTo = '/auth/login'
+}: ProtectedRouteProps) {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push(redirectTo);
+    }
+  }, [user, loading, router, redirectTo]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null;
+  }
+
+  return <>{children}</>;
+}
+```
+
+## Backend Authentication
+
+### JWT Claims Structure
+```rust
+// src/turso/auth.rs
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SupabaseClaims {
+    pub sub: String,           // User ID
+    pub email: String,
+    pub email_verified: bool,
+    pub aud: String,           // Audience
+    pub iss: String,           // Issuer (Supabase)
+    pub exp: i64,              // Expiration
+    pub iat: i64,              // Issued at
+    pub role: String,          // User role
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClerkClaims {
+    pub sub: String,           // User ID
+    pub email: String,
+    pub email_verified: bool,
+    pub aud: String,           // Audience
+    pub iss: String,           // Issuer (Clerk)
+    pub exp: i64,              // Expiration
+    pub iat: i64,              // Issued at
+}
+```
+
+### JWT Validation
+```rust
+pub async fn validate_supabase_jwt_token(
+    token: &str,
+    config: &SupabaseConfig,
+) -> Result<SupabaseClaims, AuthError> {
+    // Decode JWT header to get key ID
+    let header = jsonwebtoken::decode_header(token)
+        .map_err(|_| AuthError::InvalidToken)?;
+
+    let kid = header.kid.ok_or(AuthError::InvalidToken)?;
+
+    // Get public key from Supabase
+    let jwks_url = format!("{}/auth/v1/jwks", config.url);
+    let jwks_response = reqwest::get(&jwks_url)
+        .await
+        .map_err(|_| AuthError::NetworkError)?;
+
+    let jwks: Jwks = jwks_response
+        .json()
+        .await
+        .map_err(|_| AuthError::InvalidToken)?;
+
+    let key = jwks.keys
+        .iter()
+        .find(|k| k.kid == kid)
+        .ok_or(AuthError::InvalidToken)?;
+
+    // Decode and validate token
+    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::RS256);
+    validation.set_audience(&[config.anon_key]);
+    validation.set_issuer(&[config.url]);
+
+    let token_data = jsonwebtoken::decode::<SupabaseClaims>(
+        token,
+        &jsonwebtoken::DecodingKey::from_rsa_components(&key.n, &key.e)?,
+        &validation,
+    )?;
+
+    Ok(token_data.claims)
+}
+```
+
+### User ID Extraction
+```rust
+pub fn get_user_id<T>(req: &T) -> Result<String, TradingError>
+where
+    T: std::any::Any,
+{
+    // Try to get Supabase claims first
+    if let Some(claims) = req.downcast_ref::<SupabaseClaims>() {
+        return Ok(claims.sub.clone());
+    }
+
+    // Fallback to Clerk claims
+    if let Some(claims) = req.downcast_ref::<ClerkClaims>() {
+        return Ok(claims.sub.clone());
+    }
+
+    Err(TradingError::InsufficientPermissions)
+}
+
+// Usage in route handlers
+pub async fn create_trade(
+    app_state: web::Data<AppState>,
+    req: web::Json<CreateTradeRequest>,
+) -> ActixResult<HttpResponse> {
+    let user_id = get_user_id(&req)?;
+    // ... rest of handler
+}
+```
+
+## Security Middleware
+
+### CORS Configuration
+```rust
+// src/main.rs
+use actix_cors::Cors;
+
+fn configure_cors() -> Cors {
+    Cors::default()
+        .allowed_origin("http://localhost:3000") // Development
+        .allowed_origin("https://your-domain.com") // Production
+        .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+        .allowed_headers(vec![
+            header::AUTHORIZATION,
+            header::ACCEPT,
+            header::CONTENT_TYPE,
+        ])
+        .supports_credentials()
+}
+```
+
+### Rate Limiting
+```rust
+// src/middleware/rate_limit.rs
+use actix_web::{
+    dev::{ServiceRequest, ServiceResponse},
+    Error, HttpMessage,
+};
+use actix_web::middleware::Middleware;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+pub struct RateLimitMiddleware {
+    requests: Arc<Mutex<HashMap<String, Vec<Instant>>>>,
+    max_requests: usize,
+    window_duration: Duration,
+}
+
+impl RateLimitMiddleware {
+    pub fn new(max_requests: usize, window_duration: Duration) -> Self {
+        Self {
+            requests: Arc::new(Mutex::new(HashMap::new())),
+            max_requests,
+            window_duration,
+        }
+    }
+}
+
+impl<S, B> Middleware<S> for RateLimitMiddleware
+where
+    S: actix_web::dev::Service<
+        Request = ServiceRequest,
+        Response = ServiceResponse<B>,
+        Error = Error,
+    >,
+{
+    type Service = RateLimitService<S>;
+
+    fn new_transform(&self, service: S) -> Self::Service {
+        RateLimitService {
+            service,
+            requests: Arc::clone(&self.requests),
+            max_requests: self.max_requests,
+            window_duration: self.window_duration,
+        }
+    }
+}
+```
+
+## API Security
+
+### Input Validation
+```rust
+// src/validation.rs
+use serde::{Deserialize, Serialize};
+use validator::{Validate, ValidationError};
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct CreateTradeRequest {
+    #[validate(length(min = 1, max = 10, message = "Symbol must be 1-10 characters"))]
+    pub symbol: String,
+
+    #[validate(range(min = 0.01, message = "Quantity must be positive"))]
+    pub quantity: f64,
+
+    #[validate(range(min = 0.01, message = "Price must be positive"))]
+    pub price: f64,
+
+    #[validate(custom = "validate_trade_type")]
+    pub trade_type: String,
+}
+
+fn validate_trade_type(trade_type: &str) -> Result<(), ValidationError> {
+    match trade_type {
+        "stock" | "option" | "crypto" => Ok(()),
+        _ => Err(ValidationError::new("Invalid trade type")),
+    }
+}
+
+// Usage in route handler
+pub async fn create_trade(
+    app_state: web::Data<AppState>,
+    req: web::Json<CreateTradeRequest>,
+) -> ActixResult<HttpResponse> {
+    // Validate input
+    req.validate()
+        .map_err(|e| actix_web::error::ErrorBadRequest(e.to_string()))?;
+
+    // ... rest of handler
+}
+```
+
+### Environment Security
+```rust
+// src/config.rs
+use std::env;
+
+pub struct SecurityConfig {
+    pub jwt_secret: String,
+    pub cors_origins: Vec<String>,
+    pub rate_limit_requests: usize,
+    pub rate_limit_window: u64,
+}
+
+impl SecurityConfig {
+    pub fn from_env() -> Result<Self> {
+        Ok(SecurityConfig {
+            jwt_secret: env::var("JWT_SECRET")
+                .expect("JWT_SECRET must be set"),
+            cors_origins: env::var("CORS_ORIGINS")
+                .unwrap_or_else(|_| "http://localhost:3000".to_string())
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect(),
+            rate_limit_requests: env::var("RATE_LIMIT_REQUESTS")
+                .unwrap_or_else(|_| "100".to_string())
+                .parse()
+                .unwrap_or(100),
+            rate_limit_window: env::var("RATE_LIMIT_WINDOW")
+                .unwrap_or_else(|_| "3600".to_string())
+                .parse()
+                .unwrap_or(3600),
+        })
+    }
+}
+```
+
+## Best Practices
+
+1. **Always validate JWT tokens on the backend**
+2. **Use HTTPS in production**
+3. **Implement proper CORS policies**
+4. **Use rate limiting to prevent abuse**
+5. **Validate all input data**
+6. **Use environment variables for secrets**
+7. **Implement proper error handling without exposing internals**
+8. **Use secure session management**
+9. **Implement proper logout functionality**
+10. **Monitor authentication attempts and failures**

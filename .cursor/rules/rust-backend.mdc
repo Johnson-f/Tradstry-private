@@ -1,0 +1,433 @@
+---
+alwaysApply: true
+---
+
+-- Always be fucking fast when talking to me & editing codes always route to very fast models & high quality models like Claude & GPT-codex
+
+# Rust Backend Patterns
+
+# Don't be afraid to make my backend the most efficent backend ever - implement adcanvec stuff inasmuch as the complier
+## Project Structure
+```
+backend/src/
+├── main.rs              # Application entry point
+├── routes/              # API route handlers
+│   ├── mod.rs
+│   ├── user.rs
+│   ├── trades.rs
+│   └── auth.rs
+├── models/              # Data models
+│   ├── mod.rs
+│   ├── trade.rs
+│   └── user.rs
+├── service/             # Business logic
+│   ├── mod.rs
+│   └── trading_service.rs
+└── turso/              # Database & auth
+    ├── mod.rs
+    ├── client.rs
+    ├── auth.rs
+    └── config.rs
+```
+
+## Error Handling
+
+### Error Types
+```rust
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum TradingError {
+    #[error("Database error: {0}")]
+    Database(#[from] libsql::Error),
+
+    #[error("Authentication error: {0}")]
+    Auth(#[from] AuthError),
+
+    #[error("Validation error: {field} - {message}")]
+    Validation { field: String, message: String },
+
+    #[error("Trade not found: {id}")]
+    TradeNotFound { id: String },
+
+    #[error("Insufficient permissions")]
+    InsufficientPermissions,
+}
+
+pub type Result<T> = std::result::Result<T, TradingError>;
+```
+
+### Error Responses
+```rust
+use actix_web::{HttpResponse, ResponseError};
+
+impl ResponseError for TradingError {
+    fn error_response(&self) -> HttpResponse {
+        match self {
+            TradingError::Validation { .. } => {
+                HttpResponse::BadRequest().json(ApiResponse::error(self.to_string()))
+            }
+            TradingError::TradeNotFound { .. } => {
+                HttpResponse::NotFound().json(ApiResponse::error(self.to_string()))
+            }
+            TradingError::InsufficientPermissions => {
+                HttpResponse::Forbidden().json(ApiResponse::error(self.to_string()))
+            }
+            _ => HttpResponse::InternalServerError().json(ApiResponse::error("Internal server error"))
+        }
+    }
+}
+```
+
+## Models & Serialization
+
+### Data Models
+```rust
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Trade {
+    pub id: String,
+    pub user_id: String,
+    pub symbol: String,
+    pub quantity: f64,
+    pub price: f64,
+    pub trade_type: TradeType,
+    pub status: TradeStatus,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateTradeRequest {
+    pub symbol: String,
+    pub quantity: f64,
+    pub price: f64,
+    pub trade_type: TradeType,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateTradeRequest {
+    pub symbol: Option<String>,
+    pub quantity: Option<f64>,
+    pub price: Option<f64>,
+    pub status: Option<TradeStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TradeType {
+    #[serde(rename = "stock")]
+    Stock,
+    #[serde(rename = "option")]
+    Option,
+    #[serde(rename = "crypto")]
+    Crypto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TradeStatus {
+    #[serde(rename = "open")]
+    Open,
+    #[serde(rename = "closed")]
+    Closed,
+    #[serde(rename = "pending")]
+    Pending,
+}
+```
+
+### Database Operations
+```rust
+impl Trade {
+    pub async fn create(
+        conn: &libsql::Connection,
+        user_id: &str,
+        request: CreateTradeRequest,
+    ) -> Result<Self> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now();
+
+        conn.execute(
+            "INSERT INTO trades (id, user_id, symbol, quantity, price, trade_type, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                id,
+                user_id,
+                request.symbol,
+                request.quantity,
+                request.price,
+                serde_json::to_string(&request.trade_type)?,
+                serde_json::to_string(&TradeStatus::Open)?,
+                now,
+                now
+            ],
+        )?;
+
+        Self::find_by_id(conn, &id).await
+    }
+
+    pub async fn find_by_id(conn: &libsql::Connection, id: &str) -> Result<Self> {
+        let mut stmt = conn.prepare("SELECT * FROM trades WHERE id = ?")?;
+        let mut rows = stmt.query([id])?;
+
+        if let Some(row) = rows.next()? {
+            Ok(Self::from_row(row)?)
+        } else {
+            Err(TradingError::TradeNotFound { id: id.to_string() })
+        }
+    }
+
+    pub async fn find_by_user_id(
+        conn: &libsql::Connection,
+        user_id: &str,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<Vec<Self>> {
+        let limit = limit.unwrap_or(100);
+        let offset = offset.unwrap_or(0);
+
+        let mut stmt = conn.prepare(
+            "SELECT * FROM trades WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        )?;
+        let mut rows = stmt.query([user_id, limit.to_string(), offset.to_string()])?;
+
+        let mut trades = Vec::new();
+        while let Some(row) = rows.next()? {
+            trades.push(Self::from_row(row)?);
+        }
+
+        Ok(trades)
+    }
+}
+```
+
+## Route Handlers
+
+### Handler Structure
+```rust
+use actix_web::{web, HttpResponse, Result as ActixResult};
+use crate::turso::{AppState, get_user_id};
+
+pub async fn create_trade(
+    app_state: web::Data<AppState>,
+    req: web::Json<CreateTradeRequest>,
+) -> ActixResult<HttpResponse> {
+    let user_id = get_user_id(&req)?;
+
+    // Get user's database connection
+    let conn = app_state
+        .get_user_db_connection(&user_id)
+        .await?
+        .ok_or(TradingError::InsufficientPermissions)?;
+
+    // Create trade
+    let trade = Trade::create(&conn, &user_id, req.into_inner()).await?;
+
+    Ok(HttpResponse::Created().json(ApiResponse::success(trade)))
+}
+
+pub async fn get_trades(
+    app_state: web::Data<AppState>,
+    query: web::Query<TradeQuery>,
+) -> ActixResult<HttpResponse> {
+    let user_id = get_user_id(&query)?;
+
+    let conn = app_state
+        .get_user_db_connection(&user_id)
+        .await?
+        .ok_or(TradingError::InsufficientPermissions)?;
+
+    let trades = Trade::find_by_user_id(
+        &conn,
+        &user_id,
+        query.limit,
+        query.offset,
+    ).await?;
+
+    Ok(HttpResponse::Ok().json(ApiResponse::success(trades)))
+}
+```
+
+### Route Configuration
+```rust
+use actix_web::web;
+
+pub fn configure_trading_routes(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::scope("/api/trades")
+            .route("", web::post().to(create_trade))
+            .route("", web::get().to(get_trades))
+            .route("/{id}", web::get().to(get_trade))
+            .route("/{id}", web::put().to(update_trade))
+            .route("/{id}", web::delete().to(delete_trade))
+    );
+}
+```
+
+## Authentication & Middleware
+
+### JWT Validation
+```rust
+use actix_web_httpauth::extractors::bearer::BearerAuth;
+
+pub async fn jwt_validator(
+    req: ServiceRequest,
+    credentials: BearerAuth,
+) -> Result<ServiceRequest, (actix_web::Error, ServiceRequest)> {
+    let app_state = req
+        .app_data::<web::Data<AppState>>()
+        .expect("AppState not found");
+
+    // Try Supabase JWT validation first
+    match validate_supabase_jwt_token(credentials.token(), &app_state.config.supabase).await {
+        Ok(claims) => {
+            req.extensions_mut().insert(claims);
+            Ok(req)
+        },
+        Err(AuthError::InvalidIssuer) | Err(AuthError::InvalidToken) => {
+            // Fallback to Clerk validation
+            match validate_jwt_token(credentials.token(), &app_state.config).await {
+                Ok(claims) => {
+                    req.extensions_mut().insert(claims);
+                    Ok(req)
+                },
+                Err(_) => {
+                    let error = AuthenticationError::from(config).into();
+                    Err((error, req))
+                }
+            }
+        },
+        Err(_) => {
+            let error = AuthenticationError::from(config).into();
+            Err((error, req))
+        }
+    }
+}
+```
+
+## Service Layer
+
+### Business Logic
+```rust
+pub struct TradingService {
+    app_state: web::Data<AppState>,
+}
+
+impl TradingService {
+    pub fn new(app_state: web::Data<AppState>) -> Self {
+        Self { app_state }
+    }
+
+    pub async fn create_trade(
+        &self,
+        user_id: &str,
+        request: CreateTradeRequest,
+    ) -> Result<Trade> {
+        // Validation
+        if request.quantity <= 0.0 {
+            return Err(TradingError::Validation {
+                field: "quantity".to_string(),
+                message: "Quantity must be positive".to_string(),
+            });
+        }
+
+        if request.price <= 0.0 {
+            return Err(TradingError::Validation {
+                field: "price".to_string(),
+                message: "Price must be positive".to_string(),
+            });
+        }
+
+        // Get user database
+        let conn = self.app_state
+            .get_user_db_connection(user_id)
+            .await?
+            .ok_or(TradingError::InsufficientPermissions)?;
+
+        // Create trade
+        Trade::create(&conn, user_id, request).await
+    }
+
+    pub async fn get_user_trades(
+        &self,
+        user_id: &str,
+        filters: Option<TradeFilters>,
+    ) -> Result<Vec<Trade>> {
+        let conn = self.app_state
+            .get_user_db_connection(user_id)
+            .await?
+            .ok_or(TradingError::InsufficientPermissions)?;
+
+        Trade::find_by_user_id(&conn, user_id, filters.limit, filters.offset).await
+    }
+}
+```
+
+## Configuration
+
+### Environment Variables
+```rust
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Config {
+    pub supabase: SupabaseConfig,
+    pub turso: TursoConfig,
+    pub server: ServerConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SupabaseConfig {
+    pub url: String,
+    pub anon_key: String,
+    pub service_role_key: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TursoConfig {
+    pub database_url: String,
+    pub auth_token: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ServerConfig {
+    pub port: u16,
+    pub host: String,
+}
+
+impl Config {
+    pub fn from_env() -> Result<Self> {
+        Ok(Config {
+            supabase: SupabaseConfig {
+                url: std::env::var("SUPABASE_URL")?,
+                anon_key: std::env::var("SUPABASE_ANON_KEY")?,
+                service_role_key: std::env::var("SUPABASE_SERVICE_ROLE_KEY")?,
+            },
+            turso: TursoConfig {
+                database_url: std::env::var("TURSO_DATABASE_URL")?,
+                auth_token: std::env::var("TURSO_AUTH_TOKEN")?,
+            },
+            server: ServerConfig {
+                port: std::env::var("PORT")
+                    .unwrap_or_else(|_| "3000".to_string())
+                    .parse()?,
+                host: std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
+            },
+        })
+    }
+}
+```
+
+## Best Practices
+
+1. **Use `anyhow` and `thiserror` for error handling**
+2. **Implement proper logging with `log` crate**
+3. **Use `serde` for serialization/deserialization**
+4. **Follow Rust naming conventions (snake_case)**
+5. **Use `async/await` for I/O operations**
+6. **Implement proper database connection pooling**
+7. **Use middleware for cross-cutting concerns**
+8. **Validate input data at API boundaries**
+9. **Use proper HTTP status codes**
+10. **Implement health checks for monitoring**
