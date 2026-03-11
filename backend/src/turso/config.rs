@@ -5,14 +5,10 @@ use std::env;
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct TursoConfig {
-    /// Central registry database URL (main Turso database)
-    pub registry_db_url: String,
-    /// Central registry database auth token
-    pub registry_db_token: String,
-    /// Turso API token for creating new databases
-    pub turso_api_token: String,
-    /// Turso organization name
-    pub turso_org: String,
+    /// Single shared database URL
+    pub db_url: String,
+    /// Single shared database auth token
+    pub db_token: String,
     /// Supabase configuration
     pub supabase: SupabaseConfig,
     /// Google OAuth configuration
@@ -68,14 +64,10 @@ impl TursoConfig {
         let web_push_config = WebPushConfig::from_env()?;
 
         Ok(Self {
-            registry_db_url: env::var("REGISTRY_DB_URL")
-                .map_err(|_| "REGISTRY_DB_URL environment variable not set")?,
-            registry_db_token: env::var("REGISTRY_DB_TOKEN")
-                .map_err(|_| "REGISTRY_DB_TOKEN environment variable not set")?,
-            turso_api_token: env::var("TURSO_API_TOKEN")
-                .map_err(|_| "TURSO_API_TOKEN environment variable not set")?,
-            turso_org: env::var("TURSO_ORG")
-                .map_err(|_| "TURSO_ORG environment variable not set")?,
+            db_url: env::var("DATABASE_URL")
+                .map_err(|_| "DATABASE_URL environment variable not set")?,
+            db_token: env::var("DATABASE_TOKEN")
+                .map_err(|_| "DATABASE_TOKEN environment variable not set")?,
             supabase: supabase_config,
             google: google_config,
             cron_secret: env::var("CRON_SECRET")
