@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-11
 **Status:** Approved
-**Scope:** `backend/src/turso/` only (models/routes update deferred)
+**Scope:** `backend/src/turso/` plus minimal required changes in `main.rs` and services that directly depend on removed types/methods (models/routes `WHERE user_id` update deferred)
 
 ## Motivation
 
@@ -85,17 +85,21 @@ CREATE TABLE IF NOT EXISTS _schema_versions (
 - `user_profile` gets `user_id TEXT NOT NULL` added, with a unique constraint on it
 - All existing triggers are preserved
 
-**Tables with `user_id` added (33 tables):**
-stocks, options, stock_positions, option_positions, position_transactions, trade_notes, playbook, playbook_rules, stock_trade_playbook, option_trade_playbook, stock_trade_rule_compliance, option_trade_rule_compliance, missed_trades, replicache_clients, replicache_space_version, trade_tags, stock_trade_tags, option_trade_tags, notebook_folders, notebook_notes, notebook_tags, notebook_note_tags, notebook_images, note_collaborators, note_invitations, note_share_settings, alert_rules, push_subscriptions, chat_sessions, chat_messages, ai_reports, ai_analysis, user_profile
+**Tables with `user_id` added (41 tables):**
+stocks, options, stock_positions, option_positions, position_transactions, trade_notes, playbook, playbook_rules, stock_trade_playbook, option_trade_playbook, stock_trade_rule_compliance, option_trade_rule_compliance, missed_trades, replicache_clients, replicache_space_version, trade_tags, stock_trade_tags, option_trade_tags, notebook_folders, notebook_notes, notebook_tags, notebook_note_tags, notebook_images, note_collaborators, note_invitations, note_share_settings, alert_rules, push_subscriptions, chat_sessions, chat_messages, ai_reports, ai_analysis, user_profile, brokerage_connections, brokerage_accounts, brokerage_transactions, brokerage_holdings, unmatched_transactions, calendar_connections, calendar_sync_cursors, calendar_events
 
 **Global tables (no user_id):**
 _schema_versions, notifications, notification_dispatch_log, public_notes_registry, invitations_registry, collaborators_registry
+
+**Dropped tables (no longer created):**
+user_databases — the per-user registry table is obsolete; user existence is tracked via `user_profile`
 
 **Removed functions:**
 - `initialize_user_database_schema()` — replaced by migration system
 - `get_current_schema_version()` / `SchemaVersion` struct — replaced by `get_current_version()`
 - `get_expected_schema()` / `get_current_tables()` / `update_table_schema()` / `create_table()` / `ensure_indexes()` / `ensure_triggers()` / `initialize_schema_version_table()` / `update_schema_version()` — all replaced by declarative migrations
 - `TableSchema`, `ColumnInfo`, `IndexInfo`, `TriggerInfo` structs — no longer needed
+- `get_table_columns()` — no longer needed
 
 ### client.rs — Simplified TursoClient
 
@@ -117,14 +121,18 @@ pub struct TursoClient {
 - `TursoCreateDbResponse`, `TursoDatabaseInfo`, `TursoTokenResponse` structs
 - `create_user_database()`, `create_database_via_api()`, `create_database_token()`
 - `get_existing_database_info()`
-- `store_user_database_entry()`, `get_user_database_entry()`, `get_all_user_database_entries()`
+- `store_user_database_entry()`, `get_user_database()`, `get_all_user_database_entries()`
 - `get_user_database_connection()` — replaced by `get_connection()`
+- `delete_user_database()`, `remove_user_database_entry()` — Turso API DB deletion no longer needed
 - `sync_user_database_schema()`, `update_registry_schema_version()`
 - All Turso API HTTP methods
 
+**Renamed:**
+- `get_registry_connection()` -> `get_connection()` — all callers updated (same DB, just a rename)
+
 **New/Changed methods:**
 - `get_connection() -> Result<Connection>` — returns connection to the shared DB
-- `get_user_db(user_id: &str) -> Result<UserDb>` — returns scoped wrapper
+- `get_user_db(user_id: &str) -> Result<UserDb>` — returns scoped wrapper (always succeeds since the shared DB always exists; user existence is not validated here)
 
 **Kept (operating on shared DB now, unchanged signatures):**
 - `register_public_note()`, `unregister_public_note()`, `get_public_note_entry()`
@@ -192,9 +200,45 @@ No changes needed.
 
 No changes needed.
 
+## Required External Changes (Compile-Breaking Dependencies)
+
+These changes fall outside `backend/src/turso/` but are required because they directly reference removed types/methods and would prevent compilation.
+
+### main.rs
+
+- **`supabase_webhook_handler`** (`handle_user_created`): Currently calls `create_user_database()`. Replace with creating a `user_profile` row in the shared DB (user sign-up no longer creates a database).
+- **`get_current_user` handler**: Currently calls `get_user_database()` and reads `UserDatabaseEntry` fields (`db_name`, `email`). Replace with a query to `user_profile` table.
+- **`ENABLE_STARTUP_SCHEMA_SYNC` env var and sync spawn**: Remove this code block — sync.rs is deleted, migration runs in `TursoClient::new()`.
+
+### service/utils/account_deletion.rs
+
+- Currently calls `delete_user_database()` and `remove_user_database_entry()`. Replace with deleting user rows from all tables `WHERE user_id = ?` (no Turso API call needed).
+
+### service/utils/storage_quota.rs
+
+- Queries `user_databases.storage_used_bytes` via `get_registry_connection()` — both are removed. Add a `storage_used_bytes INTEGER DEFAULT 0` column to `user_profile` in migration v1. Replace `get_registry_connection()` with `get_connection()` and update queries to read/write `user_profile.storage_used_bytes` instead.
+
+### service/brokerage/sync.rs, service/notifications/system.rs, service/notifications/earnings_calendar.rs
+
+- Currently call `list_all_user_ids()` then `get_user_database_connection()` per user. Replace `get_user_database_connection()` calls with `get_user_db()` returning `UserDb`.
+- Also call `get_registry_connection()` for dispatch log queries — replace with `get_connection()` (trivial rename, same DB).
+
+### routes/user.rs, routes/trade_notes.rs
+
+- Currently call `get_user_database()` returning `UserDatabaseEntry`. Replace with `get_user_db()` returning `UserDb`.
+
+### All callers of `get_user_database_connection()` (blanket change)
+
+The removed `TursoClient::get_user_database_connection()` method is called from ~20+ files across routes and services (stocks.rs, options.rs, playbook.rs, brokerage.rs, alerts.rs, push.rs, ai/chat.rs, ai/reports.rs, service/ai_service/interface/analysis_service.rs, service/ai_service/interface/chat_service.rs, service/market_engine/stream_service.rs, and others). Every call site must be mechanically updated:
+
+- `turso_client.get_user_database_connection(&user_id)` -> `turso_client.get_user_db(&user_id)`
+- `app_state.get_user_db_connection(&user_id)` -> `app_state.get_user_db(&user_id)`
+
+The returned type changes from `Result<Option<Connection>>` to `Result<UserDb>` (no `Option` — the shared DB always exists). Call sites that unwrap the `Option` with `.ok_or_else(|| "User database not found")?` can drop that check. Call sites that use `conn` directly will use `user_db.conn()` instead (query logic changes deferred).
+
 ## Not In Scope
 
-- Updating route handlers or model files to use `UserDb` / add `WHERE user_id` clauses
+- Updating route handlers or model files to add `WHERE user_id` clauses to queries
 - Building cross-user feature queries
 - Data migration (no existing users)
 
