@@ -4,7 +4,7 @@ use log::info;
 use serde::{Deserialize, Serialize};
 
 use super::config::TursoConfig;
-use super::schema::migrate;
+use super::schema::run_migrations;
 
 /// Turso client for the single shared database
 pub struct TursoClient {
@@ -74,7 +74,7 @@ impl TursoClient {
             .connect()
             .context("Failed to get database connection for migration")?;
 
-        migrate(&conn).await.context("Schema migration failed")?;
+        run_migrations(&conn).await.context("Schema migration failed")?;
 
         info!("Database connection established and schema migrated");
 
