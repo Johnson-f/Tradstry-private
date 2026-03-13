@@ -2,22 +2,22 @@
 
 Tradstry is a comprehensive trading journal and analytics platform that helps traders track, analyze, and improve their trading performance using AI-powered insights and real-time analytics.
 
-## 🌟 Overview
+## Overview
 
 Tradstry combines advanced journaling capabilities with sophisticated analytics to transform how traders make decisions. The platform integrates with brokerage accounts, provides real-time market data, and uses AI to generate personalized trading insights and reports.
 
 ### Key Features
 
-- **📊 Real-time Analytics**: Comprehensive performance tracking with risk metrics, P&L analysis, and market correlation insights
-- **🤖 AI-Powered Insights**: Automated behavioral analysis, pattern recognition, and personalized recommendations
-- **📝 Advanced Journaling**: Rich text notes, trade tagging, playbook creation, and multimedia support
-- **🔗 Brokerage Integration**: Direct connection to trading accounts for automatic trade importing
-- **📈 Market Data**: Live quotes, historical data, technical indicators, and news aggregation
-- **📅 Calendar Integration**: Sync with Google Calendar for trading events and reminders
-- **💬 AI Chat**: Interactive AI assistant for trading analysis and strategy discussions
-- **📱 Responsive Design**: Full-featured web application with mobile support
+- **Real-time Analytics**: Comprehensive performance tracking with risk metrics, P&L analysis, and market correlation insights
+- **AI-Powered Insights**: Automated behavioral analysis, pattern recognition, and personalized recommendations
+- **Advanced Journaling**: Rich text notes, trade tagging, playbook creation, and multimedia support
+- **Brokerage Integration**: Direct connection to trading accounts for automatic trade importing
+- **Market Data**: Live quotes, historical data, technical indicators, and news aggregation
+- **Calendar Integration**: Sync with Google Calendar for trading events and reminders
+- **AI Chat**: Interactive AI assistant for trading analysis and strategy discussions
+- **Responsive Design**: Full-featured web application with mobile support
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 ### Frontend
 - **Framework**: Next.js 16 with React 19
@@ -51,7 +51,7 @@ Tradstry combines advanced journaling capabilities with sophisticated analytics 
 - **Monitoring**: Health check endpoints
 - **CDN**: Vercel for frontend hosting
 
-## 🏗️ Architecture
+## Architecture
 
 The application follows a microservices architecture with clear separation of concerns:
 
@@ -100,7 +100,7 @@ The application follows a microservices architecture with clear separation of co
 - **Market Data**: Quotes and historical data
 - **User Service**: Profile and initialization
 
-## 🚀 Local Development Setup
+## Local Development Setup
 
 ### Prerequisites
 
@@ -217,7 +217,7 @@ cd backend
 cargo run --bin migrate
 ```
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 tradstry/
@@ -256,39 +256,39 @@ tradstry/
 └── scripts/                     # Deployment and utility scripts
 ```
 
-## 🧩 Core Features
+## Core Features
 
-### 📊 Analytics Dashboard
+### Analytics Dashboard
 - **Performance Metrics**: Win rate, profit factor, Sharpe ratio
 - **Risk Analysis**: Maximum drawdown, volatility, correlation
 - **Time Series**: Daily/weekly/monthly P&L charts
 - **Trade Analysis**: Individual trade performance, tagging system
 
-### 🤖 AI-Powered Features
+### AI-Powered Features
 - **AI Chat**: Natural language trading assistant
 - **Insights**: Automated pattern recognition and recommendations
 - **Reports**: Comprehensive trading performance reports
 - **Insights**: Behavioral analysis and market intelligence
 
-### 📝 Advanced Journaling
+### Advanced Journaling
 - **Trade Notes**: Rich text editor with images and attachments
 - **Playbooks**: Strategy templates and trade setups
 - **Tags**: Customizable trade categorization
 - **Search**: Full-text search with AI-powered relevance
 
-### 🔗 Brokerage Integration
+### Brokerage Integration
 - **Account Sync**: Automatic trade importing
 - **Position Tracking**: Real-time portfolio monitoring
 - **Transaction History**: Complete trading history import
 - **Multi-Account**: Support for multiple brokerage accounts
 
-### 📈 Market Data
+### Market Data
 - **Real-time Quotes**: Live price updates
 - **Technical Indicators**: Moving averages, RSI, MACD
 - **Historical Data**: Multi-timeframe data analysis
 - **News Aggregation**: Market news and earnings reports
 
-## 🔧 Development Commands
+## Development Commands
 
 ```bash
 # Frontend
@@ -312,7 +312,7 @@ docker-compose down      # Stop all services
 docker-compose logs      # View logs
 ```
 
-## 🚀 Deployment
+## Deployment
 
 Tradstry supports multiple deployment strategies:
 
@@ -331,7 +331,7 @@ For detailed deployment instructions, see:
 - [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) - Complete deployment guide
 - [`docs/DEPLOYMENT_SUMMARY.md`](docs/DEPLOYMENT_SUMMARY.md) - Implementation summary
 
-## 🔒 Security Features
+## Security Features
 
 - **Authentication**: Supabase Auth with Google OAuth
 - **Authorization**: Row-level security (RLS) policies
@@ -339,7 +339,7 @@ For detailed deployment instructions, see:
 - **Data Encryption**: Encrypted storage and transmission
 - **Audit Logging**: Comprehensive activity tracking
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/your-feature`
@@ -356,18 +356,18 @@ For detailed deployment instructions, see:
 - **Testing**: Unit tests for critical functions
 - **Documentation**: JSDoc for public APIs
 
-## 📚 Documentation
+## Documentation
 
 - [**Deployment Guide**](docs/DEPLOYMENT.md) - Production deployment instructions
 - [**API Documentation**](docs/API.md) - Backend API reference
 - [**Component Library**](docs/COMPONENTS.md) - UI component documentation
 - [**Architecture Decisions**](docs/ARCHITECTURE.md) - Technical design decisions
 
-## 📄 License
+## License
 
 This project is proprietary software. All rights reserved.
 
-## 🆘 Support
+## Support
 
 For support and questions:
 - **Issues**: GitHub Issues for bug reports and feature requests
