@@ -2,13 +2,36 @@ mod graphql;
 mod routes;
 mod service;
 
-use actix_web::{web, App, HttpServer};
+use actix_cors::Cors;
+use actix_web::{App, HttpServer, middleware::Logger, web};
 use clerk_rs::validators::actix::ClerkMiddleware;
 use log::info;
 use service::auth::create_jwks_provider;
-use service::turso::TursoConfig;
 use service::turso::TursoClient;
+use service::turso::TursoConfig;
 use std::sync::Arc;
+
+fn cors_allowed_origins() -> Vec<String> {
+    let defaults = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+    ];
+
+    std::env::var("CORS_ALLOWED_ORIGINS")
+        .ok()
+        .map(|origins| {
+            origins
+                .split(',')
+                .map(str::trim)
+                .filter(|origin| !origin.is_empty())
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .filter(|origins| !origins.is_empty())
+        .unwrap_or_else(|| defaults.into_iter().map(str::to_owned).collect())
+}
 
 #[actix_web::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -27,14 +50,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Clerk authentication configured");
 
     let schema = graphql::build_schema();
+    let allowed_origins = cors_allowed_origins();
 
     info!("Starting server on 0.0.0.0:8080");
+    info!("Allowed CORS origins: {:?}", allowed_origins);
     HttpServer::new(move || {
         let jwks_provider = create_jwks_provider(&clerk_secret);
 
+        let cors = allowed_origins
+            .iter()
+            .fold(Cors::default(), |cors, origin| cors.allowed_origin(origin))
+            .allowed_methods(vec!["GET", "POST", "OPTIONS"])
+            .allowed_headers(vec![
+                actix_web::http::header::AUTHORIZATION,
+                actix_web::http::header::CONTENT_TYPE,
+            ])
+            .max_age(3600);
+
         App::new()
+            .wrap(Logger::new(
+                r#"%a "%r" %s %b "%{Referer}i" "%{User-Agent}i" %T"#,
+            ))
             .wrap(ClerkMiddleware::new(jwks_provider, None, true))
+            .wrap(cors)
             .app_data(web::Data::new(schema.clone()))
+            .app_data(web::Data::new(turso_client.clone()))
             .configure(routes::configure)
     })
     .bind("0.0.0.0:8080")?

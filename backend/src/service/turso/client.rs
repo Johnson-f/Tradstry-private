@@ -72,8 +72,11 @@ impl TursoClient {
             .context("Failed to get database connection")
     }
 
-    pub fn get_user_db(&self, user_id: &str) -> Result<UserDb> {
+    pub async fn get_user_db(&self, user_id: &str) -> Result<UserDb> {
         let conn = self.get_connection()?;
+        conn.execute("PRAGMA foreign_keys = ON", libsql::params![])
+            .await
+            .context("Failed to enable foreign keys")?;
         Ok(UserDb::new(conn, user_id.to_string()))
     }
 

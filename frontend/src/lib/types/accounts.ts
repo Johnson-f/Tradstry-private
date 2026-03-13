@@ -1,0 +1,41 @@
+export const CURRENCIES = [
+  "USD",
+  "EUR",
+  "GBP",
+  "JPY",
+  "CAD",
+  "AUD",
+  "CHF",
+] as const;
+
+export type Currency = (typeof CURRENCIES)[number];
+
+export type RiskProfile = "conservative" | "moderate" | "aggressive";
+
+export interface Account {
+  id: string;
+  userId: string;
+  name: string;
+  icon: string;
+  currency: Currency;
+  broker: string | null;
+  riskProfile: RiskProfile;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateAccountInput {
+  name: string;
+  icon?: string;
+  currency?: string;
+  broker?: string | null;
+  riskProfile?: string;
+}
+
+export interface UpdateAccountInput {
+  name?: string;
+  icon?: string;
+  currency?: string;
+  broker?: string | null;
+  riskProfile?: string;
+}
