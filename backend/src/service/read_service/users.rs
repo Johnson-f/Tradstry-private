@@ -12,11 +12,11 @@ pub async fn ensure_user(
     full_name: &str,
     email: &str,
 ) -> Result<User> {
-    if let Some(user) = users_table::find_by_clerk_uuid(conn, clerk_uuid).await? {
-        return Ok(user);
+    let (user, created) = users_table::find_or_create_user(conn, clerk_uuid, full_name, email).await?;
+
+    if created {
+        accounts_table::create_default_account(conn, &user.id).await?;
     }
 
-    let user = users_table::create_user(conn, clerk_uuid, full_name, email).await?;
-    accounts_table::create_default_account(conn, &user.id).await?;
     Ok(user)
 }

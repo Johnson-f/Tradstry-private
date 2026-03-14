@@ -26,6 +26,7 @@ export interface JournalEntry {
   mistakes: string;
   entryTactics: string;
   edgesSpotted: string;
+  playbookId: string | null;
   notes: string | null;
 }
 
@@ -44,6 +45,7 @@ export interface CreateJournalEntryInput {
   mistakes: string;
   entryTactics: string;
   edgesSpotted: string;
+  playbookId?: string | null;
   notes?: string | null;
 }
 
@@ -62,6 +64,8 @@ export interface UpdateJournalEntryInput {
   mistakes?: string;
   entryTactics?: string;
   edgesSpotted?: string;
+  playbookId?: string | null;
   notes?: string | null;
   clearNotes?: boolean;
+  clearPlaybook?: boolean;
 }

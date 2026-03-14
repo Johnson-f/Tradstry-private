@@ -1,4 +1,4 @@
 pub mod client;
 pub mod schema;
 
-pub use client::{TursoClient, TursoConfig, UserDb};
+pub use client::{TursoClient, TursoConfig};

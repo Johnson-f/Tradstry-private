@@ -3,6 +3,9 @@ use clerk_rs::validators::authorizer::ClerkJwt;
 use std::sync::Arc;
 
 use crate::service::read_service::playbook as playbook_service;
+use crate::service::turso::schema::tables::playbook_table::{
+    CreatePlaybookInput, UpdatePlaybookInput,
+};
 use crate::service::read_service::users::ensure_user;
 use crate::service::turso::TursoClient;
 
@@ -55,7 +58,7 @@ impl PlaybookMutation {
     async fn create_playbook(
         &self,
         ctx: &Context<'_>,
-        input: crate::service::turso::schema::tables::playbook_table::CreatePlaybookInput,
+        input: CreatePlaybookInput,
     ) -> Result<playbook_service::PlaybookWithStats> {
         let user_db = get_user_db(ctx).await?;
         Ok(playbook_service::create_playbook(&user_db, input).await?)
@@ -65,7 +68,7 @@ impl PlaybookMutation {
         &self,
         ctx: &Context<'_>,
         id: String,
-        input: crate::service::turso::schema::tables::playbook_table::UpdatePlaybookInput,
+        input: UpdatePlaybookInput,
     ) -> Result<playbook_service::PlaybookWithStats> {
         let user_db = get_user_db(ctx).await?;
         Ok(playbook_service::update_playbook(&user_db, &id, input).await?)

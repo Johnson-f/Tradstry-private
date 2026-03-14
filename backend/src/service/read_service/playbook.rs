@@ -1,4 +1,5 @@
 use anyhow::Result;
+use async_graphql::SimpleObject;
 use std::collections::HashMap;
 
 use crate::service::turso::client::UserDb;
@@ -16,7 +17,8 @@ pub struct PlaybookStats {
     pub trade_count: usize,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, SimpleObject)]
+#[graphql(rename_fields = "camelCase")]
 pub struct PlaybookWithStats {
     pub id: String,
     pub user_id: String,
@@ -112,14 +114,13 @@ fn calculate_playbook_stats(trades: &[JournalEntry]) -> PlaybookStats {
 
 fn build_playbook_with_stats(
     record: Playbook,
-    entries: &[JournalEntry],
     entries_by_playbook: &HashMap<String, Vec<JournalEntry>>,
 ) -> PlaybookWithStats {
-    let trade_ids = entries_by_playbook
+    let trades = entries_by_playbook
         .get(&record.id)
         .cloned()
         .unwrap_or_default();
-    let stats = calculate_playbook_stats(&trade_ids);
+    let stats = calculate_playbook_stats(&trades);
 
     PlaybookWithStats::from_record(record, stats)
 }
@@ -127,8 +128,8 @@ fn build_playbook_with_stats(
 fn group_entries_by_playbook(entries: Vec<JournalEntry>) -> HashMap<String, Vec<JournalEntry>> {
     let mut by_playbook: HashMap<String, Vec<JournalEntry>> = HashMap::new();
 
-    for entry in entries {
-        if let Some(playbook_id) = entry.playbook_id {
+    for mut entry in entries {
+        if let Some(playbook_id) = entry.playbook_id.take() {
             by_playbook.entry(playbook_id).or_default().push(entry);
         }
     }
@@ -144,7 +145,7 @@ pub async fn list_playbooks(user_db: &UserDb) -> Result<Vec<PlaybookWithStats>> 
 
     Ok(playbooks
         .into_iter()
-        .map(|playbook| build_playbook_with_stats(playbook, &[], &by_playbook))
+        .map(|playbook| build_playbook_with_stats(playbook, &by_playbook))
         .collect())
 }
 
@@ -157,9 +158,7 @@ pub async fn get_playbook(user_db: &UserDb, id: &str) -> Result<Option<PlaybookW
     let entries = journal_table::list_journal_entries(user_db.conn(), user_db.user_id()).await?;
     let by_playbook = group_entries_by_playbook(entries);
 
-    Ok(playbook.map(|playbook| {
-        build_playbook_with_stats(playbook, &[], &by_playbook)
-    }))
+    Ok(playbook.map(|record| build_playbook_with_stats(record, &by_playbook)))
 }
 
 pub async fn create_playbook(
@@ -167,7 +166,10 @@ pub async fn create_playbook(
     input: CreatePlaybookInput,
 ) -> Result<PlaybookWithStats> {
     let playbook = playbook_table::create_playbook(user_db.conn(), user_db.user_id(), input).await?;
-    Ok(build_playbook_with_stats(playbook, &[], &HashMap::new()))
+    let entries = journal_table::list_journal_entries(user_db.conn(), user_db.user_id()).await?;
+    let by_playbook = group_entries_by_playbook(entries);
+
+    Ok(build_playbook_with_stats(playbook, &by_playbook))
 }
 
 pub async fn update_playbook(
@@ -179,7 +181,7 @@ pub async fn update_playbook(
     let entries = journal_table::list_journal_entries(user_db.conn(), user_db.user_id()).await?;
     let by_playbook = group_entries_by_playbook(entries);
 
-    Ok(build_playbook_with_stats(playbook, &[], &by_playbook))
+    Ok(build_playbook_with_stats(playbook, &by_playbook))
 }
 
 pub async fn delete_playbook(user_db: &UserDb, id: &str) -> Result<bool> {

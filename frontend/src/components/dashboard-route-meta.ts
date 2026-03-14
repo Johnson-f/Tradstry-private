@@ -29,9 +29,9 @@ export const dashboardRouteMeta: Record<string, DashboardRouteMeta> = {
   },
   "/dashboard/playbook": {
     title: "Playbook",
-    description:
-      "Document repeatable setups, criteria, and execution rules on a real route wired from the sidebar.",
-    section: "Analytics",
+    description: "",
+    section: "",
+    showPageHeader: false,
   },
   "/dashboard/statistics": {
     title: "Statistics",

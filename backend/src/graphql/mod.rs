@@ -1,5 +1,6 @@
 mod accounts;
 mod analytics;
+mod playbook;
 mod journal;
 mod notebook;
 mod subscriptions;
@@ -12,6 +13,7 @@ pub struct Query(
     users::UserQuery,
     accounts::AccountQuery,
     analytics::AnalyticsQuery,
+    playbook::PlaybookQuery,
     journal::JournalQuery,
     notebook::NotebookQuery,
 );
@@ -19,6 +21,7 @@ pub struct Query(
 #[derive(MergedObject, Default)]
 pub struct Mutation(
     accounts::AccountMutation,
+    playbook::PlaybookMutation,
     journal::JournalMutation,
     notebook::NotebookMutation,
 );

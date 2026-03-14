@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useCreateJournalEntry } from "@/hooks/journal";
+import { usePlaybooks } from "@/hooks/playbook";
 import type { TradeType } from "@/lib/types/journal";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +41,7 @@ type TradeFormState = {
   mistakes: string;
   entryTactics: string;
   edgesSpotted: string;
+  playbookId: string;
   notes: string;
 };
 
@@ -56,6 +58,7 @@ const initialFormState: TradeFormState = {
   mistakes: "",
   entryTactics: "",
   edgesSpotted: "",
+  playbookId: "",
   notes: "",
 };
 
@@ -79,6 +82,7 @@ function Field({
 export function CreateTrades() {
   const activeAccount = useActiveAccount();
   const createTrade = useCreateJournalEntry();
+  const playbooks = usePlaybooks();
   const [open, setOpen] = React.useState(false);
   const [form, setForm] = React.useState<TradeFormState>(initialFormState);
   const [error, setError] = React.useState("");
@@ -139,6 +143,7 @@ export function CreateTrades() {
         exitPrice: Number(form.exitPrice),
         positionSize: Number(form.positionSize),
         stopLoss: Number(form.stopLoss),
+        playbookId: form.playbookId || undefined,
         tradeType: form.tradeType,
         mistakes: form.mistakes.trim(),
         entryTactics: form.entryTactics.trim(),
@@ -286,6 +291,31 @@ export function CreateTrades() {
                 <SelectContent>
                   <SelectItem value="long">Long</SelectItem>
                   <SelectItem value="short">Short</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+
+            <Field label="Playbook (Optional)">
+              <Select
+                value={form.playbookId || "__none__"}
+                onValueChange={(value) =>
+                  setField(
+                    "playbookId",
+                    value === "__none__" ? "" : value,
+                  )
+                }
+                disabled={playbooks.isLoading}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="No playbook" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No playbook</SelectItem>
+                  {playbooks.data?.map((playbook) => (
+                    <SelectItem key={playbook.id} value={playbook.id}>
+                      {playbook.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </Field>

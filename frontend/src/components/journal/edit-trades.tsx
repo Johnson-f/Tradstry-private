@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useUpdateJournalEntry } from "@/hooks/journal";
+import { usePlaybooks } from "@/hooks/playbook";
 import type { JournalEntry, TradeType } from "@/lib/types/journal";
 import { cn } from "@/lib/utils";
 
@@ -39,8 +40,11 @@ type TradeFormState = {
   mistakes: string;
   entryTactics: string;
   edgesSpotted: string;
+  playbookId: string;
   notes: string;
 };
+
+const NO_PLAYBOOK_VALUE = "__none__";
 
 function toLocalDateTime(value: string) {
   const parsed = new Date(value);
@@ -67,6 +71,7 @@ function createInitialState(trade: JournalEntry): TradeFormState {
     mistakes: trade.mistakes,
     entryTactics: trade.entryTactics,
     edgesSpotted: trade.edgesSpotted,
+    playbookId: trade.playbookId ?? "",
     notes: trade.notes ?? "",
   };
 }
@@ -94,11 +99,16 @@ interface EditTradesProps {
 
 export function EditTrades({ trade }: EditTradesProps) {
   const updateTrade = useUpdateJournalEntry();
+  const playbooks = usePlaybooks();
+  const availablePlaybooks = playbooks.data ?? [];
   const [open, setOpen] = React.useState(false);
   const [form, setForm] = React.useState<TradeFormState>(() =>
     createInitialState(trade),
   );
   const [error, setError] = React.useState("");
+  const selectedPlaybook = availablePlaybooks.find(
+    (playbook) => playbook.id === form.playbookId,
+  );
 
   React.useEffect(() => {
     if (open) {
@@ -141,6 +151,8 @@ export function EditTrades({ trade }: EditTradesProps) {
     }
 
     const trimmedNotes = form.notes.trim();
+    const hadPlaybook = Boolean(trade.playbookId);
+    const willClearPlaybook = hadPlaybook && !form.playbookId;
 
     try {
       await updateTrade.mutateAsync({
@@ -158,6 +170,8 @@ export function EditTrades({ trade }: EditTradesProps) {
           mistakes: form.mistakes.trim(),
           entryTactics: form.entryTactics.trim(),
           edgesSpotted: form.edgesSpotted.trim(),
+          playbookId: form.playbookId || undefined,
+          clearPlaybook: willClearPlaybook,
           notes: trimmedNotes || undefined,
           clearNotes: !trimmedNotes,
         },
@@ -326,6 +340,41 @@ export function EditTrades({ trade }: EditTradesProps) {
                 }
               />
             </Field>
+
+            <Field label="Playbook (Optional)">
+              <Select
+                value={form.playbookId || NO_PLAYBOOK_VALUE}
+                onValueChange={(value) =>
+                  setField(
+                    "playbookId",
+                    value === NO_PLAYBOOK_VALUE ? "" : value,
+                  )
+                }
+                disabled={playbooks.isLoading}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="No playbook" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_PLAYBOOK_VALUE}>No playbook</SelectItem>
+                  {availablePlaybooks.map((playbook) => (
+                    <SelectItem key={playbook.id} value={playbook.id}>
+                      {playbook.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {playbooks.isLoading
+                  ? "Loading playbooks..."
+                  : selectedPlaybook
+                    ? `Current playbook: ${selectedPlaybook.name}. You can keep it, change it, or remove it.`
+                    : availablePlaybooks.length > 0
+                      ? "Select a playbook for this trade or leave it unassigned."
+                      : "No playbooks available yet. Create one first if you want to tag this trade."}
+              </p>
+            </Field>
+
             <Field label="Notes" htmlFor={`edit-notes-${trade.id}`}>
               <textarea
                 id={`edit-notes-${trade.id}`}

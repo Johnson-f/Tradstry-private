@@ -65,18 +65,19 @@ pub async fn find_or_create_user(
     clerk_uuid: &str,
     full_name: &str,
     email: &str,
-) -> Result<User> {
+) -> Result<(User, bool)> {
     if let Some(user) = find_by_clerk_uuid(conn, clerk_uuid).await? {
-        return Ok(user);
+        return Ok((user, false));
     }
 
     match create_user(conn, clerk_uuid, full_name, email).await {
-        Ok(user) => Ok(user),
+        Ok(user) => Ok((user, true)),
         Err(_) => {
             // Race condition: another request created the user first. Fetch it.
             find_by_clerk_uuid(conn, clerk_uuid)
                 .await?
                 .context("User not found after concurrent insert")
+                .map(|user| (user, false))
         }
     }
 }

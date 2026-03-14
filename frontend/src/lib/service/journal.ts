@@ -27,6 +27,7 @@ const JOURNAL_ENTRY_FIELDS = `
   mistakes
   entryTactics
   edgesSpotted
+  playbookId
   notes
 `;
 

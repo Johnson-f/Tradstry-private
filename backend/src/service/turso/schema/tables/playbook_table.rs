@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow, ensure};
+use anyhow::{Context, Result, ensure};
 use async_graphql::{InputObject, SimpleObject};
 use libsql::Connection;
 use serde::{Deserialize, Serialize};

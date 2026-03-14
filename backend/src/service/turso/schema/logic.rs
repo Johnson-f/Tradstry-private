@@ -70,12 +70,12 @@ pub async fn migrate(conn: &Connection) -> Result<()> {
         }
     }
 
-    // Step 3: Run all CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS
-    // This handles new tables and new indexes automatically.
+    // Step 3: Create tables first so column diffs can be applied before any
+    // indexes or triggers reference newly added columns.
     let statements = split_sql_statements(SCHEMA_SQL);
     for stmt in &statements {
         let trimmed = stmt.trim();
-        if trimmed.is_empty() {
+        if trimmed.is_empty() || !is_create_table_statement(trimmed) {
             continue;
         }
         conn.execute(trimmed, libsql::params![]).await?;
@@ -188,6 +188,16 @@ pub async fn migrate(conn: &Connection) -> Result<()> {
     // Step 6: Drop indexes/triggers not in desired schema
     drop_stale_indexes(conn, SCHEMA_SQL).await?;
     drop_stale_triggers(conn, SCHEMA_SQL).await?;
+
+    // Step 7: Recreate desired indexes/triggers now that tables and columns
+    // are in their final shape for this schema version.
+    for stmt in &statements {
+        let trimmed = stmt.trim();
+        if trimmed.is_empty() || !is_create_index_or_trigger_statement(trimmed) {
+            continue;
+        }
+        conn.execute(trimmed, libsql::params![]).await?;
+    }
 
     // Record version
     conn.execute(
@@ -609,6 +619,18 @@ fn parse_desired_trigger_names(sql: &str) -> HashSet<String> {
         }
     }
     names
+}
+
+fn is_create_table_statement(sql: &str) -> bool {
+    let upper = sql.trim().to_uppercase();
+    upper.starts_with("CREATE TABLE")
+}
+
+fn is_create_index_or_trigger_statement(sql: &str) -> bool {
+    let upper = sql.trim().to_uppercase();
+    upper.starts_with("CREATE INDEX")
+        || upper.starts_with("CREATE UNIQUE INDEX")
+        || upper.starts_with("CREATE TRIGGER")
 }
 
 async fn drop_stale_indexes(conn: &Connection, schema_sql: &str) -> Result<()> {

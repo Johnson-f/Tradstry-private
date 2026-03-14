@@ -1,5 +1,5 @@
-import { DashboardRoutePage } from "@/components/dashboard-route-page";
+import { Playbook } from "@/components/playbook";
 
 export default function PlaybookPage() {
-  return <DashboardRoutePage title="Playbook" />;
+  return <Playbook />;
 }
