@@ -11,6 +11,7 @@ export const dashboardRouteMeta: Record<string, DashboardRouteMeta> = {
     description:
       "Your trading home base for portfolio activity, recent journal entries, and account-aware shortcuts.",
     section: "Home",
+    showPageHeader: false,
   },
   "/dashboard/journal": {
     title: "Journal",
@@ -24,6 +25,7 @@ export const dashboardRouteMeta: Record<string, DashboardRouteMeta> = {
     description:
       "Centralize market notes, screenshots, and structured research inside a dedicated notebook route.",
     section: "Home",
+    showPageHeader: false,
   },
   "/dashboard/playbook": {
     title: "Playbook",

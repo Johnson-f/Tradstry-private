@@ -1,5 +1,5 @@
-import { DashboardRoutePage } from "@/components/dashboard-route-page";
+import { Notebook } from "@/components/notebook";
 
 export default function NotebookPage() {
-  return <DashboardRoutePage title="Notebook" />;
+  return <Notebook />;
 }

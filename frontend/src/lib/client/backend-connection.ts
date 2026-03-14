@@ -1,9 +1,16 @@
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080/graphql";
 
-export interface GraphQLFetcher {
-  <T>(query: string, variables?: Record<string, unknown>): Promise<T>;
+export function getBackendBaseUrl(): string {
+  return BACKEND_URL.endsWith("/graphql")
+    ? BACKEND_URL.slice(0, -"/graphql".length)
+    : BACKEND_URL;
 }
+
+export type GraphQLFetcher = <T>(
+  query: string,
+  variables?: Record<string, unknown>,
+) => Promise<T>;
 
 const DEBUG_GRAPHQL = process.env.NODE_ENV !== "production";
 

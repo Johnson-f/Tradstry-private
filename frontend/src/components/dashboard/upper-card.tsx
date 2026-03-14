@@ -1,0 +1,225 @@
+"use client";
+
+import { useState } from "react";
+import { useActiveAccount } from "@/components/accounts";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useJournalAnalytics } from "@/hooks/analytics";
+import type { AnalyticsRange } from "@/lib/types/analytics";
+import { cn } from "@/lib/utils";
+
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const percentFormatter = new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const RANGE_OPTIONS: Array<{ label: string; value: AnalyticsRange }> = [
+  { label: "7D", value: "LAST_7_DAYS" },
+  { label: "30D", value: "LAST_30_DAYS" },
+  { label: "YTD", value: "YEAR_TO_DATE" },
+  { label: "1Y", value: "LAST_1_YEAR" },
+];
+
+function formatCurrency(value: number) {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${currencyFormatter.format(value)}`;
+}
+
+function formatPercent(value: number) {
+  return `${percentFormatter.format(value)}%`;
+}
+
+function formatRatio(value: number | null) {
+  if (value === null) return "N/A";
+  return `${value.toFixed(2)}x`;
+}
+
+function MetricCard({
+  label,
+  value,
+  sublabel,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  sublabel: string;
+  tone?: "neutral" | "positive" | "negative";
+}) {
+  return (
+    <div className="rounded-2xl border bg-background/90 p-4 shadow-sm">
+      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+        {label}
+      </p>
+      <p
+        className={cn(
+          "mt-3 text-2xl font-semibold",
+          tone === "positive" && "text-emerald-600",
+          tone === "negative" && "text-rose-600",
+        )}
+      >
+        {value}
+      </p>
+      <p className="mt-1 text-xs text-muted-foreground">{sublabel}</p>
+    </div>
+  );
+}
+
+export function DashboardUpperCard() {
+  const activeAccount = useActiveAccount();
+  const [range, setRange] = useState<AnalyticsRange>("LAST_30_DAYS");
+  const { data, isLoading, isPending, error } = useJournalAnalytics(
+    activeAccount?.id ?? null,
+    { range },
+  );
+
+  if (!activeAccount) {
+    return (
+      <section className="rounded-2xl border bg-background/80 p-6">
+        <p className="text-sm font-medium text-foreground">No active account</p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Select an account to load dashboard analytics.
+        </p>
+      </section>
+    );
+  }
+
+  if (isLoading || isPending) {
+    return (
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-36" />
+            <Skeleton className="h-4 w-56" />
+          </div>
+          <Skeleton className="h-10 w-24 rounded-xl" />
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {["a", "b", "c", "d"].map((key) => (
+            <Skeleton key={key} className="h-32 rounded-2xl" />
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  if (error instanceof Error) {
+    return (
+      <section className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-rose-700">
+        <p className="text-sm font-semibold uppercase tracking-[0.2em]">
+          Analytics Error
+        </p>
+        <p className="mt-2 text-sm">{error.message}</p>
+      </section>
+    );
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return (
+    <section className="space-y-4 pt-3">
+      <div className="flex flex-col gap-3 rounded-2xl border bg-background/80 p-5 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+            Account Overview
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold text-foreground">
+            {activeAccount.name}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Range analytics for the active trading account.
+          </p>
+        </div>
+
+        <Select
+          value={range}
+          onValueChange={(value) => setRange(value as AnalyticsRange)}
+        >
+          <SelectTrigger className="h-10 w-full rounded-xl md:w-28">
+            <SelectValue placeholder="Range" />
+          </SelectTrigger>
+          <SelectContent>
+            {RANGE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          label="Cumulative Profit"
+          value={formatCurrency(data.cumulativeProfit)}
+          sublabel="Net realized P/L across the selected range"
+          tone={data.cumulativeProfit >= 0 ? "positive" : "negative"}
+        />
+        <MetricCard
+          label="Win Rate"
+          value={formatPercent(data.winRate)}
+          sublabel="Winning trades divided by total closed trades"
+        />
+        <MetricCard
+          label="Average R:R"
+          value={`${data.averageRiskToReward.toFixed(2)}R`}
+          sublabel="Average realized reward-to-risk"
+        />
+        <MetricCard
+          label="Profit Factor"
+          value={formatRatio(data.profitFactor)}
+          sublabel="Gross profit divided by gross loss"
+        />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          label="Average Gain"
+          value={formatCurrency(data.averageGain)}
+          sublabel="Average dollar profit on winning trades"
+          tone="positive"
+        />
+        <MetricCard
+          label="Average Loss"
+          value={formatCurrency(-data.averageLoss)}
+          sublabel="Average dollar loss on losing trades"
+          tone="negative"
+        />
+        <MetricCard
+          label="Biggest Win"
+          value={data.biggestWin?.symbol ?? "N/A"}
+          sublabel={
+            data.biggestWin
+              ? formatCurrency(data.biggestWin.amount)
+              : "No winning trade in this range"
+          }
+          tone={data.biggestWin ? "positive" : "neutral"}
+        />
+        <MetricCard
+          label="Biggest Loss"
+          value={data.biggestLoss?.symbol ?? "N/A"}
+          sublabel={
+            data.biggestLoss
+              ? formatCurrency(data.biggestLoss.amount)
+              : "No losing trade in this range"
+          }
+          tone={data.biggestLoss ? "negative" : "neutral"}
+        />
+      </div>
+    </section>
+  );
+}

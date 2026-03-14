@@ -1,5 +1,7 @@
 mod accounts;
+mod analytics;
 mod journal;
+mod notebook;
 mod subscriptions;
 mod users;
 
@@ -9,11 +11,17 @@ use async_graphql::{EmptySubscription, MergedObject, Schema};
 pub struct Query(
     users::UserQuery,
     accounts::AccountQuery,
+    analytics::AnalyticsQuery,
     journal::JournalQuery,
+    notebook::NotebookQuery,
 );
 
 #[derive(MergedObject, Default)]
-pub struct Mutation(accounts::AccountMutation, journal::JournalMutation);
+pub struct Mutation(
+    accounts::AccountMutation,
+    journal::JournalMutation,
+    notebook::NotebookMutation,
+);
 
 pub type AppSchema = Schema<Query, Mutation, EmptySubscription>;
 

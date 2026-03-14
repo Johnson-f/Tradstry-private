@@ -1,2 +1,6 @@
-export { createGraphQLFetcher, type GraphQLFetcher } from "./backend-connection";
+export {
+  createGraphQLFetcher,
+  type GraphQLFetcher,
+  getBackendBaseUrl,
+} from "./backend-connection";
 export { GraphQLProvider, useGraphQL } from "./provider";

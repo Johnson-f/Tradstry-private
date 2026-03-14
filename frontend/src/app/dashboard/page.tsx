@@ -1,5 +1,10 @@
-import { DashboardRoutePage } from "@/components/dashboard-route-page";
+import { DashboardCalendar, DashboardUpperCard } from "@/components/dashboard";
 
 export default function Page() {
-  return <DashboardRoutePage title="Dashboard" />;
+  return (
+    <div className="space-y-6">
+      <DashboardUpperCard />
+      <DashboardCalendar />
+    </div>
+  );
 }
