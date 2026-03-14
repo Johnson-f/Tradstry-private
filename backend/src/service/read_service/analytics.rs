@@ -6,14 +6,14 @@ use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, Utc};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TradeOutcome {
     pub symbol: String,
     pub symbol_name: String,
     pub amount: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct JournalAnalytics {
     pub win_rate: f64,
     pub cumulative_profit: f64,
@@ -25,7 +25,7 @@ pub struct JournalAnalytics {
     pub biggest_loss: Option<TradeOutcome>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CalendarDaySummary {
     pub date: String,
     pub profit: f64,
@@ -33,7 +33,7 @@ pub struct CalendarDaySummary {
     pub win_rate: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CalendarWeekSummary {
     pub week_index: usize,
     pub week_start: String,
@@ -43,7 +43,7 @@ pub struct CalendarWeekSummary {
     pub trading_days: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CalendarAnalytics {
     pub year: i32,
     pub month: u32,
@@ -486,6 +486,7 @@ mod tests {
             mistakes: "none".to_string(),
             entry_tactics: "breakout".to_string(),
             edges_spotted: "trend".to_string(),
+            playbook_id: None,
             notes: None,
         }
     }

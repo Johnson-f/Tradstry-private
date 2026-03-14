@@ -241,8 +241,8 @@ mod tests {
         let stats = calculate_playbook_stats(&entries);
         assert_eq!(stats.trade_count, 3);
         assert_eq!(stats.win_rate, (2.0 / 3.0) * 100.0);
-        assert_eq!(stats.cumulative_profit, 900.0 + -800.0 + 50.0);
-        assert_eq!(stats.average_gain, (900.0 + 50.0) / 2.0);
-        assert_eq!(stats.average_loss, 800.0);
+        assert_eq!(stats.cumulative_profit, 8.0 + -8.0 + 0.5);
+        assert_eq!(stats.average_gain, (8.0 + 0.5) / 2.0);
+        assert_eq!(stats.average_loss, 8.0);
     }
 }

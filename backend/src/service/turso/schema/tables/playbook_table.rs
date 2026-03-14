@@ -289,9 +289,6 @@ mod tests {
 
     #[test]
     fn empty_name_is_invalid() {
-        assert!(
-            ensure_text(&Some("".to_string())).not(),
-            "empty string should be invalid"
-        );
+        assert!(!ensure_text(&Some("".to_string())), "empty string should be invalid");
     }
 }

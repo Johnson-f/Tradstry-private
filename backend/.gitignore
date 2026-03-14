@@ -1,3 +1,6 @@
 /target
 
 backend/.env
+agents_service/.env
+agents_service/data/
+agents_service/src/**/__pycache__/
