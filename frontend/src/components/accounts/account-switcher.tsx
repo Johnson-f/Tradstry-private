@@ -155,7 +155,7 @@ export function AccountSwitcher() {
                   <DropdownMenuItem
                     key={account.id}
                     onClick={() => actions.setActive(account.id)}
-                    className="gap-2 p-2"
+                    className="group gap-2 p-2"
                   >
                     <div className="flex size-6 items-center justify-center rounded-md border">
                       {accountIcon && (
@@ -224,6 +224,8 @@ export function AccountSwitcher() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         account={editingAccount}
+        canDelete={accounts.length > 1}
+        onDelete={setDeleteTarget}
       />
 
       <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>

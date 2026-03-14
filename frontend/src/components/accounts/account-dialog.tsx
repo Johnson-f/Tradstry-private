@@ -1,5 +1,6 @@
 "use client";
 
+import { Delete02Icon, PencilEdit01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import * as React from "react";
 import { Button } from "@/components/ui/button";
@@ -30,12 +31,16 @@ interface AccountDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   account?: Account | null;
+  canDelete?: boolean;
+  onDelete?: (account: Account) => void;
 }
 
 export function AccountDialog({
   open,
   onOpenChange,
   account,
+  canDelete = false,
+  onDelete,
 }: AccountDialogProps) {
   const isEditing = !!account;
   const accounts = useAccounts();
@@ -111,14 +116,45 @@ export function AccountDialog({
       <DialogContent className="sm:max-w-[425px]">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>
-              {isEditing ? "Edit Account" : "Create Account"}
-            </DialogTitle>
-            <DialogDescription>
-              {isEditing
-                ? "Update your trading account settings."
-                : "Set up a new trading portfolio."}
-            </DialogDescription>
+            <div className="flex items-start justify-between gap-3 pr-8">
+              <div className="space-y-1">
+                <DialogTitle className="flex items-center gap-2">
+                  <span className="flex size-7 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                    <HugeiconsIcon
+                      icon={PencilEdit01Icon}
+                      strokeWidth={2}
+                      className="size-4"
+                    />
+                  </span>
+                  {isEditing ? "Edit Account" : "Create Account"}
+                </DialogTitle>
+                <DialogDescription>
+                  {isEditing
+                    ? "Update your trading account settings."
+                    : "Set up a new trading portfolio."}
+                </DialogDescription>
+              </div>
+              {isEditing && account ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  disabled={!canDelete}
+                  onClick={() => {
+                    onOpenChange(false);
+                    onDelete?.(account);
+                  }}
+                >
+                  <HugeiconsIcon
+                    icon={Delete02Icon}
+                    strokeWidth={2}
+                    className="size-4"
+                  />
+                  <span className="sr-only">Delete account</span>
+                </Button>
+              ) : null}
+            </div>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">

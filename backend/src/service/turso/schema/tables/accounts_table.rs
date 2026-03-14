@@ -75,11 +75,7 @@ pub async fn list_accounts(conn: &Connection, user_id: &str) -> Result<Vec<Accou
     Ok(accounts)
 }
 
-pub async fn find_account(
-    conn: &Connection,
-    id: &str,
-    user_id: &str,
-) -> Result<Option<Account>> {
+pub async fn find_account(conn: &Connection, id: &str, user_id: &str) -> Result<Option<Account>> {
     let mut rows = conn
         .query(
             &format!("SELECT {SELECT_COLS} FROM accounts WHERE id = ?1 AND user_id = ?2"),

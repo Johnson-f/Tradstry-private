@@ -1,5 +1,5 @@
 [package]
-name = "backend"
+name = "tradstry-backend"
 version = "0.1.0"
 edition = "2024"
 
@@ -17,4 +17,6 @@ actix-web = "4.13.0"
 async-graphql = "7.2.1"
 async-graphql-actix-web = "7.2.1"
 clerk-rs = { version = "0.4.2", features = ["actix"] }
+chrono = { version = "0.4.42", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
+finance-query = "2.4.0"

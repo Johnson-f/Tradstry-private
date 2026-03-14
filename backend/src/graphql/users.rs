@@ -3,8 +3,8 @@ use clerk_rs::validators::authorizer::ClerkJwt;
 use std::sync::Arc;
 
 use crate::service::read_service::users::ensure_user;
-use crate::service::turso::schema::tables::users_table::User;
 use crate::service::turso::TursoClient;
+use crate::service::turso::schema::tables::users_table::User;
 
 #[derive(Default)]
 pub struct UserQuery;

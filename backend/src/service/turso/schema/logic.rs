@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use super::tables::SCHEMA_SQL;
 
 /// Bump this when you change SCHEMA_SQL and want the diff re-applied.
-pub const SCHEMA_VERSION: &str = "0.2";
+pub const SCHEMA_VERSION: &str = "0.5";
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -62,7 +62,10 @@ pub async fn migrate(conn: &Connection) -> Result<()> {
             )
             .await
             .with_context(|| {
-                format!("Failed to rename column {}.{} -> {}", table, old_col, new_col)
+                format!(
+                    "Failed to rename column {}.{} -> {}",
+                    table, old_col, new_col
+                )
             })?;
         }
     }
@@ -115,9 +118,11 @@ pub async fn migrate(conn: &Connection) -> Result<()> {
                         table_name, col.name, col.col_type, null_clause, default_clause
                     );
                     info!("Adding column: {}.{}", table_name, col.name);
-                    conn.execute(&sql, libsql::params![]).await.with_context(|| {
-                        format!("Failed to add column {}.{}", table_name, col.name)
-                    })?;
+                    conn.execute(&sql, libsql::params![])
+                        .await
+                        .with_context(|| {
+                            format!("Failed to add column {}.{}", table_name, col.name)
+                        })?;
                 }
             }
 
@@ -132,7 +137,10 @@ pub async fn migrate(conn: &Connection) -> Result<()> {
                 info!("Dropping column: {}.{}", table_name, col_name);
                 let drop_result = conn
                     .execute(
-                        &format!("ALTER TABLE \"{}\" DROP COLUMN \"{}\"", table_name, col_name),
+                        &format!(
+                            "ALTER TABLE \"{}\" DROP COLUMN \"{}\"",
+                            table_name, col_name
+                        ),
                         libsql::params![],
                     )
                     .await;
@@ -158,8 +166,7 @@ pub async fn migrate(conn: &Connection) -> Result<()> {
     }
 
     // Step 5: Drop tables that no longer exist in SCHEMA_SQL
-    let desired_table_names: HashSet<String> =
-        desired_tables.keys().cloned().collect();
+    let desired_table_names: HashSet<String> = desired_tables.keys().cloned().collect();
     let internal_tables: HashSet<String> = ["_schema_version".to_string()].into();
 
     for live_table in live_tables.keys() {
@@ -694,11 +701,8 @@ async fn rebuild_table_without_columns(
     .await?;
 
     // 3. Drop old table
-    conn.execute(
-        &format!("DROP TABLE \"{}\"", table),
-        libsql::params![],
-    )
-    .await?;
+    conn.execute(&format!("DROP TABLE \"{}\"", table), libsql::params![])
+        .await?;
 
     // 4. Rename temp to original
     conn.execute(

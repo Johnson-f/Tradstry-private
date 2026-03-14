@@ -1,4 +1,4 @@
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Result};
+use actix_web::{HttpMessage, HttpRequest, HttpResponse, Result, web};
 use async_graphql::http::GraphiQLSource;
 use async_graphql_actix_web::{GraphQLRequest, GraphQLResponse};
 use clerk_rs::validators::authorizer::ClerkJwt;
@@ -31,7 +31,13 @@ pub async fn graphql_handler(
         .operation_name
         .clone()
         .unwrap_or_else(|| infer_operation_name(&request.query).to_string());
-    let query_preview = request.query.lines().next().unwrap_or("").trim().to_string();
+    let query_preview = request
+        .query
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
     let auth = http_req.extensions().get::<ClerkJwt>().cloned();
     let auth_subject = auth
         .as_ref()

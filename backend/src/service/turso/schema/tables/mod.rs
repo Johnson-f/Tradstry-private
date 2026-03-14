@@ -1,4 +1,5 @@
 pub mod accounts_table;
+pub mod journal_table;
 pub mod users_table;
 
 /// Define your schema here. Bump SCHEMA_VERSION in logic.rs when you change this.
@@ -39,6 +40,34 @@ CREATE TABLE IF NOT EXISTS accounts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts (user_id);
+
+CREATE TABLE IF NOT EXISTS journal_entries (
+    id TEXT PRIMARY KEY NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    reviewed BOOLEAN NOT NULL DEFAULT false,
+    open_date TEXT NOT NULL,
+    close_date TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    exit_price REAL NOT NULL,
+    position_size REAL NOT NULL,
+    symbol TEXT NOT NULL,
+    symbol_name TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('profit', 'loss')),
+    total_pl REAL NOT NULL,
+    net_roi REAL NOT NULL,
+    duration INTEGER NOT NULL,
+    stop_loss REAL NOT NULL,
+    risk_reward REAL NOT NULL,
+    trade_type TEXT NOT NULL CHECK (trade_type IN ('long', 'short')),
+    mistakes TEXT NOT NULL,
+    entry_tactics TEXT NOT NULL,
+    edges_spotted TEXT NOT NULL,
+    notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_journal_entries_user_id ON journal_entries (user_id);
+CREATE INDEX IF NOT EXISTS idx_journal_entries_symbol ON journal_entries (symbol);
 
 CREATE TRIGGER IF NOT EXISTS trg_users_updated_at
 AFTER UPDATE ON users

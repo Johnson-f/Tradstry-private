@@ -1,0 +1,694 @@
+"use client";
+
+import {
+  type ColumnDef,
+  type ColumnFiltersState,
+  type FilterFn,
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  type SortingState,
+  useReactTable,
+} from "@tanstack/react-table";
+import { type ComponentProps, useDeferredValue, useState } from "react";
+import { useActiveAccount } from "@/components/accounts";
+import { CreateTrades } from "@/components/journal/create-trades";
+import { DeleteTrades } from "@/components/journal/delete-trades";
+import { EditTrades } from "@/components/journal/edit-trades";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useJournalEntriesForAccount } from "@/hooks/journal";
+import type {
+  JournalEntry,
+  JournalStatus,
+  TradeType,
+} from "@/lib/types/journal";
+import { cn } from "@/lib/utils";
+
+const percentFormatter = new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "2-digit",
+  year: "numeric",
+});
+
+const rowSearchFilter: FilterFn<JournalEntry> = (
+  row,
+  _columnId,
+  filterValue,
+) => {
+  const search = String(filterValue ?? "")
+    .trim()
+    .toLowerCase();
+  if (!search) return true;
+
+  const haystack = [
+    row.original.symbol,
+    row.original.symbolName,
+    row.original.tradeType,
+    row.original.status,
+    row.original.mistakes,
+    row.original.entryTactics,
+    row.original.edgesSpotted,
+    row.original.notes ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes(search);
+};
+
+function formatDate(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return dateFormatter.format(parsed);
+}
+
+function formatPercent(value: number) {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${percentFormatter.format(value)}%`;
+}
+
+function formatCurrency(value: number) {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${currencyFormatter.format(value)}`;
+}
+
+function formatDuration(seconds: number) {
+  if (seconds <= 0) return "0m";
+
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${seconds}s`;
+}
+
+function statusClasses(status: JournalStatus) {
+  return status === "profit"
+    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+    : "border-rose-200 bg-rose-50 text-rose-700";
+}
+
+function tradeTypeClasses(type: TradeType) {
+  return type === "long"
+    ? "border-sky-200 bg-sky-50 text-sky-700"
+    : "border-amber-200 bg-amber-50 text-amber-700";
+}
+
+function valueClasses(value: number) {
+  return value >= 0 ? "text-emerald-600" : "text-rose-600";
+}
+
+function SortableHeader({
+  label,
+  canSort,
+  sortDirection,
+  onClick,
+}: {
+  label: string;
+  canSort: boolean;
+  sortDirection: false | "asc" | "desc";
+  onClick?: ComponentProps<"button">["onClick"];
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1 text-left font-medium",
+        canSort
+          ? "cursor-pointer text-foreground"
+          : "cursor-default text-muted-foreground",
+      )}
+    >
+      <span>{label}</span>
+      {sortDirection === "asc" ? <span>↑</span> : null}
+      {sortDirection === "desc" ? <span>↓</span> : null}
+    </button>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  sublabel,
+}: {
+  label: string;
+  value: string;
+  sublabel: string;
+}) {
+  return (
+    <div className="rounded-xl border bg-background p-4">
+      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-2 text-2xl font-semibold text-foreground">{value}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{sublabel}</p>
+    </div>
+  );
+}
+
+const columns: ColumnDef<JournalEntry>[] = [
+  {
+    accessorKey: "reviewed",
+    header: ({ column }) => (
+      <SortableHeader
+        label="Reviewed"
+        canSort={column.getCanSort()}
+        sortDirection={column.getIsSorted()}
+        onClick={column.getToggleSortingHandler()}
+      />
+    ),
+    cell: ({ row }) => (
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            "inline-flex size-2.5 rounded-full",
+            row.original.reviewed ? "bg-emerald-500" : "bg-slate-300",
+          )}
+        />
+        <span className="text-xs text-slate-500">
+          {row.original.reviewed ? "Done" : "Pending"}
+        </span>
+      </div>
+    ),
+  },
+  {
+    accessorKey: "openDate",
+    header: ({ column }) => (
+      <SortableHeader
+        label="Open Date"
+        canSort={column.getCanSort()}
+        sortDirection={column.getIsSorted()}
+        onClick={column.getToggleSortingHandler()}
+      />
+    ),
+    cell: ({ row }) => (
+      <div className="space-y-1">
+        <p className="font-medium text-slate-900">
+          {formatDate(row.original.openDate)}
+        </p>
+        <p className="text-xs text-slate-500">
+          {formatDate(row.original.closeDate)}
+        </p>
+      </div>
+    ),
+  },
+  {
+    accessorKey: "symbol",
+    header: ({ column }) => (
+      <SortableHeader
+        label="Symbol"
+        canSort={column.getCanSort()}
+        sortDirection={column.getIsSorted()}
+        onClick={column.getToggleSortingHandler()}
+      />
+    ),
+    cell: ({ row }) => (
+      <div className="space-y-1">
+        <p className="font-semibold tracking-[0.12em] text-slate-900 uppercase">
+          {row.original.symbol}
+        </p>
+        <p className="max-w-[14rem] truncate text-xs text-slate-500">
+          {row.original.symbolName}
+        </p>
+      </div>
+    ),
+  },
+  {
+    accessorKey: "status",
+    filterFn: "equalsString",
+    header: ({ column }) => (
+      <SortableHeader
+        label="Status"
+        canSort={column.getCanSort()}
+        sortDirection={column.getIsSorted()}
+        onClick={column.getToggleSortingHandler()}
+      />
+    ),
+    cell: ({ row }) => (
+      <span
+        className={cn(
+          "inline-flex rounded-full border px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.18em]",
+          statusClasses(row.original.status),
+        )}
+      >
+        {row.original.status}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "netRoi",
+    header: ({ column }) => (
+      <SortableHeader
+        label="Net ROI"
+        canSort={column.getCanSort()}
+        sortDirection={column.getIsSorted()}
+        onClick={column.getToggleSortingHandler()}
+      />
+    ),
+    cell: ({ row }) => (
+      <span className={cn("font-semibold", valueClasses(row.original.netRoi))}>
+        {formatPercent(row.original.netRoi)}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "totalPl",
+    header: ({ column }) => (
+      <SortableHeader
+        label="Net P/L"
+        canSort={column.getCanSort()}
+        sortDirection={column.getIsSorted()}
+        onClick={column.getToggleSortingHandler()}
+      />
+    ),
+    cell: ({ row }) => (
+      <span className={cn("font-semibold", valueClasses(row.original.totalPl))}>
+        {formatPercent(row.original.totalPl)}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "duration",
+    header: ({ column }) => (
+      <SortableHeader
+        label="Duration"
+        canSort={column.getCanSort()}
+        sortDirection={column.getIsSorted()}
+        onClick={column.getToggleSortingHandler()}
+      />
+    ),
+    cell: ({ row }) => (
+      <span className="text-sm text-slate-600">
+        {formatDuration(row.original.duration)}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "riskReward",
+    header: ({ column }) => (
+      <SortableHeader
+        label="R:R"
+        canSort={column.getCanSort()}
+        sortDirection={column.getIsSorted()}
+        onClick={column.getToggleSortingHandler()}
+      />
+    ),
+    cell: ({ row }) => (
+      <span
+        className={cn("font-medium", valueClasses(row.original.riskReward))}
+      >
+        {row.original.riskReward.toFixed(2)}R
+      </span>
+    ),
+  },
+  {
+    accessorKey: "tradeType",
+    filterFn: "equalsString",
+    header: ({ column }) => (
+      <SortableHeader
+        label="Type"
+        canSort={column.getCanSort()}
+        sortDirection={column.getIsSorted()}
+        onClick={column.getToggleSortingHandler()}
+      />
+    ),
+    cell: ({ row }) => (
+      <span
+        className={cn(
+          "inline-flex rounded-full border px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.18em]",
+          tradeTypeClasses(row.original.tradeType),
+        )}
+      >
+        {row.original.tradeType}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "mistakes",
+    header: "Mistakes",
+    cell: ({ row }) => (
+      <div className="flex items-start justify-between gap-3">
+        <div className="max-w-[16rem]">
+          <p className="truncate text-sm text-slate-600">
+            {row.original.mistakes}
+          </p>
+        </div>
+        <div className="flex items-center gap-1">
+          <EditTrades trade={row.original} />
+          <DeleteTrades trade={row.original} />
+        </div>
+      </div>
+    ),
+  },
+];
+
+function JournalTableLoading() {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 md:grid-cols-4">
+        {["summary-a", "summary-b", "summary-c", "summary-d"].map((key) => (
+          <Skeleton key={key} className="h-24 rounded-xl" />
+        ))}
+      </div>
+      <Skeleton className="h-14 rounded-xl" />
+      <Skeleton className="h-[28rem] rounded-xl" />
+    </div>
+  );
+}
+
+export function JournalTable() {
+  const activeAccount = useActiveAccount();
+  const {
+    data,
+    isLoading,
+    isPending,
+    error,
+    isFetching,
+    refetch,
+    dataUpdatedAt,
+  } = useJournalEntriesForAccount(activeAccount?.id ?? null);
+  const entries = data ?? [];
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "openDate", desc: true },
+  ]);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
+
+  const table = useReactTable({
+    data: entries,
+    columns,
+    state: {
+      sorting,
+      columnFilters,
+      globalFilter: deferredSearch,
+    },
+    onSortingChange: setSorting,
+    onColumnFiltersChange: setColumnFilters,
+    globalFilterFn: rowSearchFilter,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    initialState: {
+      pagination: {
+        pageIndex: 0,
+        pageSize: 8,
+      },
+    },
+  });
+
+  const statusFilter =
+    (table.getColumn("status")?.getFilterValue() as string | undefined) ??
+    "all";
+  const tradeTypeFilter =
+    (table.getColumn("tradeType")?.getFilterValue() as string | undefined) ??
+    "all";
+  const filteredRows = table
+    .getFilteredRowModel()
+    .rows.map((row) => row.original);
+  const totalTrades = filteredRows.length;
+  const reviewedTrades = filteredRows.filter((entry) => entry.reviewed).length;
+  const profitTrades = filteredRows.filter(
+    (entry) => entry.status === "profit",
+  ).length;
+  const cumulativeProfit = filteredRows.reduce(
+    (sum, entry) => sum + (entry.positionSize * entry.totalPl) / 100,
+    0,
+  );
+  const averageRiskReward =
+    totalTrades === 0
+      ? 0
+      : filteredRows.reduce((sum, entry) => sum + entry.riskReward, 0) /
+        totalTrades;
+  const lastUpdated =
+    dataUpdatedAt > 0
+      ? new Intl.DateTimeFormat("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+          second: "2-digit",
+        }).format(new Date(dataUpdatedAt))
+      : "Waiting for data";
+
+  if (isLoading || isPending) {
+    return <JournalTableLoading />;
+  }
+
+  if (error instanceof Error) {
+    return (
+      <section className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-rose-700">
+        <p className="text-sm font-semibold uppercase tracking-[0.22em]">
+          Journal Error
+        </p>
+        <p className="mt-2 text-sm">{error.message}</p>
+      </section>
+    );
+  }
+
+  return (
+    <div className="space-y-4 pt-3 md:pt-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          label="Cumulative Profit"
+          value={formatCurrency(cumulativeProfit)}
+          sublabel={
+            activeAccount
+              ? `Combined dollar P/L for ${activeAccount.name}`
+              : "Select an account to view cumulative profit"
+          }
+        />
+        <MetricCard
+          label="Win Rate"
+          value={
+            totalTrades === 0
+              ? "0.00%"
+              : formatPercent((profitTrades / totalTrades) * 100)
+          }
+          sublabel={`${profitTrades} winning trades out of ${totalTrades}`}
+        />
+        <MetricCard
+          label="Reviewed"
+          value={
+            totalTrades === 0
+              ? "0.00%"
+              : formatPercent((reviewedTrades / totalTrades) * 100)
+          }
+          sublabel={`${reviewedTrades} reviewed entries in the current slice`}
+        />
+        <MetricCard
+          label="Average R:R"
+          value={`${averageRiskReward.toFixed(2)}R`}
+          sublabel="Realized reward-to-risk across trades"
+        />
+      </div>
+
+      <div className="rounded-xl border bg-background">
+        <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search symbol, notes, or mistakes"
+              className="h-10 rounded-xl border-slate-200 bg-slate-50/80 text-sm md:max-w-xs"
+            />
+            <Select
+              value={statusFilter}
+              onValueChange={(value) =>
+                table
+                  .getColumn("status")
+                  ?.setFilterValue(value === "all" ? undefined : value)
+              }
+            >
+              <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-slate-50/80 md:w-[9rem]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="profit">Profit</SelectItem>
+                <SelectItem value="loss">Loss</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={tradeTypeFilter}
+              onValueChange={(value) =>
+                table
+                  .getColumn("tradeType")
+                  ?.setFilterValue(value === "all" ? undefined : value)
+              }
+            >
+              <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-slate-50/80 md:w-[9rem]">
+                <SelectValue placeholder="Trade type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                <SelectItem value="long">Long</SelectItem>
+                <SelectItem value="short">Short</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <CreateTrades />
+            <div className="rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground">
+              {isFetching ? "Syncing..." : `Updated ${lastUpdated}`}
+            </div>
+            <Button variant="outline" size="sm" onClick={() => refetch()}>
+              Refresh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSearch("");
+                table.resetColumnFilters();
+                table.resetSorting();
+              }}
+            >
+              Reset
+            </Button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <tr key={headerGroup.id} className="border-b">
+                  {headerGroup.headers.map((header) => (
+                    <th
+                      key={header.id}
+                      className="px-4 py-3 text-left text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-slate-500"
+                    >
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
+                          )}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={columns.length}
+                    className="px-4 py-14 text-center"
+                  >
+                    <p className="text-sm font-medium text-slate-900">
+                      No trades found
+                    </p>
+                    <p className="mt-2 text-sm text-slate-500">
+                      {activeAccount
+                        ? `No journal entries found for ${activeAccount.name}.`
+                        : "Select an account to view journal entries."}
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                table.getRowModel().rows.map((row) => (
+                  <tr key={row.id} className="border-b last:border-b-0">
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className="px-4 py-3 align-top">
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext(),
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-4 text-sm text-slate-500 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span>Rows per page</span>
+              <Select
+                value={String(table.getState().pagination.pageSize)}
+                onValueChange={(value) => table.setPageSize(Number(value))}
+              >
+                <SelectTrigger className="h-9 w-[5.5rem] rounded-xl border-slate-200 bg-slate-50/80">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="8">8</SelectItem>
+                  <SelectItem value="12">12</SelectItem>
+                  <SelectItem value="20">20</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <p>
+              Showing{" "}
+              <span className="font-medium text-slate-900">
+                {table.getRowModel().rows.length}
+              </span>{" "}
+              of{" "}
+              <span className="font-medium text-slate-900">
+                {filteredRows.length}
+              </span>{" "}
+              filtered trades
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => table.previousPage()}
+              disabled={!table.getCanPreviousPage()}
+            >
+              Previous
+            </Button>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700">
+              Page {table.getState().pagination.pageIndex + 1} of{" "}
+              {table.getPageCount() || 1}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => table.nextPage()}
+              disabled={!table.getCanNextPage()}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

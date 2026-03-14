@@ -1,11 +1,7 @@
 "use client";
 
 import {
-  BookOpen02Icon,
   ComputerTerminalIcon,
-  CropIcon,
-  MapsIcon,
-  PieChartIcon,
   RoboticIcon,
   Settings05Icon,
 } from "@hugeicons/core-free-icons";
@@ -13,7 +9,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type * as React from "react";
 import { AccountSwitcher } from "@/components/accounts";
 import { NavMain } from "@/components/nav-main";
-import { NavProjects } from "@/components/nav-projects";
 import { NavUser } from "@/components/nav-user";
 import {
   Sidebar,
@@ -25,71 +20,46 @@ import {
 
 // This is sample data.
 const data = {
-  user: {
-    name: "shadcn",
-    email: "m@example.com",
-    avatar: "/avatars/shadcn.jpg",
-  },
   navMain: [
     {
-      title: "Playground",
-      url: "#",
+      title: "Home",
+      url: "/dashboard",
       icon: <HugeiconsIcon icon={ComputerTerminalIcon} strokeWidth={2} />,
-      isActive: true,
       items: [
-        { title: "History", url: "#" },
-        { title: "Starred", url: "#" },
-        { title: "Settings", url: "#" },
+        { title: "Dashboard", url: "/dashboard" },
+        { title: "Journal", url: "/dashboard/journal" },
+        { title: "Notebook", url: "/dashboard/notebook" },
       ],
     },
     {
-      title: "Models",
-      url: "#",
+      title: "Analytics",
+      url: "/dashboard/playbook",
       icon: <HugeiconsIcon icon={RoboticIcon} strokeWidth={2} />,
       items: [
-        { title: "Genesis", url: "#" },
-        { title: "Explorer", url: "#" },
-        { title: "Quantum", url: "#" },
+        { title: "Playbook", url: "/dashboard/playbook" },
+        { title: "Statistics", url: "/dashboard/statistics" },
+        { title: "Reporting", url: "/dashboard/reporting" },
       ],
     },
     {
-      title: "Documentation",
-      url: "#",
-      icon: <HugeiconsIcon icon={BookOpen02Icon} strokeWidth={2} />,
+      title: "AI stuff",
+      url: "/dashboard/ai-reports",
+      icon: <HugeiconsIcon icon={RoboticIcon} strokeWidth={2} />,
       items: [
-        { title: "Introduction", url: "#" },
-        { title: "Get Started", url: "#" },
-        { title: "Tutorials", url: "#" },
-        { title: "Changelog", url: "#" },
+        { title: "AI Reports", url: "/dashboard/ai-reports" },
+        { title: "AI Insights", url: "/dashboard/ai-insights" },
+        { title: "AI Chat", url: "/dashboard/ai-chat" },
       ],
     },
     {
-      title: "Settings",
-      url: "#",
+      title: "Resources",
+      url: "/dashboard/mindset-lab",
       icon: <HugeiconsIcon icon={Settings05Icon} strokeWidth={2} />,
       items: [
-        { title: "General", url: "#" },
-        { title: "Team", url: "#" },
-        { title: "Billing", url: "#" },
-        { title: "Limits", url: "#" },
+        { title: "Mindset Lab", url: "/dashboard/mindset-lab" },
+        { title: "Markets", url: "/dashboard/markets" },
+        { title: "Charting", url: "/dashboard/charting" },
       ],
-    },
-  ],
-  projects: [
-    {
-      name: "Design Engineering",
-      url: "#",
-      icon: <HugeiconsIcon icon={CropIcon} strokeWidth={2} />,
-    },
-    {
-      name: "Sales & Marketing",
-      url: "#",
-      icon: <HugeiconsIcon icon={PieChartIcon} strokeWidth={2} />,
-    },
-    {
-      name: "Travel",
-      url: "#",
-      icon: <HugeiconsIcon icon={MapsIcon} strokeWidth={2} />,
     },
   ],
 };
@@ -102,10 +72,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={data.navMain} />
-        <NavProjects projects={data.projects} />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={data.user} />
+        <NavUser />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
