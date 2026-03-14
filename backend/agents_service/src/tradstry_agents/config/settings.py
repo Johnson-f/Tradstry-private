@@ -28,7 +28,7 @@ class Settings(BaseSettings):
         validation_alias="AGENTS_PROMPT_ROOT",
     )
     groq_api_key: str | None = Field(default=None, validation_alias="GROQ_API_KEY")
-    groq_model: str = Field(default="llama-3.3-70b-versatile", validation_alias="GROQ_MODEL")
+    groq_model: str = Field(default="", validation_alias="GROQ_MODEL")
     groq_base_url: str = Field(
         default="https://api.groq.com/openai/v1/chat/completions",
         validation_alias="GROQ_BASE_URL",
