@@ -100,6 +100,17 @@ pub async fn find_notebook_image(
     }
 }
 
+pub async fn delete_notebook_image(conn: &Connection, id: &str, user_id: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM notebook_images WHERE id = ?1 AND user_id = ?2",
+        libsql::params![id, user_id],
+    )
+    .await
+    .context("Failed to delete notebook image")?;
+
+    Ok(())
+}
+
 pub async fn create_notebook_image(
     conn: &Connection,
     user_id: &str,

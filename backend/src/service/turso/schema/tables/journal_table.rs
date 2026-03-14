@@ -30,6 +30,7 @@ pub struct JournalEntry {
     pub mistakes: String,
     pub entry_tactics: String,
     pub edges_spotted: String,
+    pub playbook_id: Option<String>,
     pub notes: Option<String>,
 }
 
@@ -50,6 +51,7 @@ pub struct CreateJournalEntryInput {
     pub mistakes: String,
     pub entry_tactics: String,
     pub edges_spotted: String,
+    pub playbook_id: Option<String>,
     pub notes: Option<String>,
 }
 
@@ -69,6 +71,9 @@ pub struct UpdateJournalEntryInput {
     pub mistakes: Option<String>,
     pub entry_tactics: Option<String>,
     pub edges_spotted: Option<String>,
+    pub playbook_id: Option<String>,
+    #[graphql(default)]
+    pub clear_playbook: bool,
     pub notes: Option<String>,
     #[graphql(default)]
     pub clear_notes: bool,
@@ -95,6 +100,7 @@ struct PreparedJournalEntry {
     mistakes: String,
     entry_tactics: String,
     edges_spotted: String,
+    playbook_id: Option<String>,
     notes: Option<String>,
 }
 
@@ -107,7 +113,7 @@ struct DerivedMetrics {
     risk_reward: f64,
 }
 
-const SELECT_COLS: &str = "id, user_id, account_id, reviewed, open_date, close_date, entry_price, exit_price, position_size, symbol, symbol_name, status, total_pl, net_roi, duration, stop_loss, risk_reward, trade_type, mistakes, entry_tactics, edges_spotted, notes";
+const SELECT_COLS: &str = "id, user_id, account_id, reviewed, open_date, close_date, entry_price, exit_price, position_size, symbol, symbol_name, status, total_pl, net_roi, duration, stop_loss, risk_reward, trade_type, mistakes, entry_tactics, edges_spotted, playbook_id, notes";
 
 fn nullable_text(row: &libsql::Row, index: i32) -> Option<String> {
     row.get::<libsql::Value>(index)
@@ -141,7 +147,8 @@ fn row_to_journal_entry(row: &libsql::Row) -> Result<JournalEntry> {
         mistakes: row.get::<String>(18)?,
         entry_tactics: row.get::<String>(19)?,
         edges_spotted: row.get::<String>(20)?,
-        notes: nullable_text(row, 21),
+        playbook_id: nullable_text(row, 21),
+        notes: nullable_text(row, 22),
     })
 }
 
@@ -179,8 +186,8 @@ fn normalize_required_text(value: &str, field: &str) -> Result<String> {
     Ok(trimmed.to_string())
 }
 
-fn normalize_optional_notes(notes: Option<String>) -> Option<String> {
-    notes.and_then(|value| {
+fn normalize_optional_text(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
         let trimmed = value.trim().to_string();
         if trimmed.is_empty() {
             None
@@ -188,6 +195,10 @@ fn normalize_optional_notes(notes: Option<String>) -> Option<String> {
             Some(trimmed)
         }
     })
+}
+
+fn normalize_optional_notes(notes: Option<String>) -> Option<String> {
+    normalize_optional_text(notes)
 }
 
 fn normalize_symbol_name_candidates(
@@ -335,6 +346,7 @@ async fn prepare_new_entry(input: CreateJournalEntryInput) -> Result<PreparedJou
         mistakes: normalize_required_text(&input.mistakes, "mistakes")?,
         entry_tactics: normalize_required_text(&input.entry_tactics, "entry_tactics")?,
         edges_spotted: normalize_required_text(&input.edges_spotted, "edges_spotted")?,
+        playbook_id: normalize_optional_text(input.playbook_id),
         notes: normalize_optional_notes(input.notes),
     })
 }
@@ -350,9 +362,7 @@ async fn prepare_updated_entry(
         .unwrap_or_else(|| current.account_id.clone());
     let reviewed = input.reviewed.unwrap_or(current.reviewed);
     let open_date = input.open_date.unwrap_or_else(|| current.open_date.clone());
-    let close_date = input
-        .close_date
-        .unwrap_or_else(|| current.close_date.clone());
+    let close_date = input.close_date.unwrap_or_else(|| current.close_date.clone());
     let entry_price = input.entry_price.unwrap_or(current.entry_price);
     let exit_price = input.exit_price.unwrap_or(current.exit_price);
     let position_size = input.position_size.unwrap_or(current.position_size);
@@ -368,6 +378,13 @@ async fn prepare_updated_entry(
     let edges_spotted = input
         .edges_spotted
         .unwrap_or_else(|| current.edges_spotted.clone());
+    let playbook_id = if input.clear_playbook {
+        None
+    } else if input.playbook_id.is_some() {
+        normalize_optional_text(input.playbook_id)
+    } else {
+        current.playbook_id.clone()
+    };
 
     let notes = if input.clear_notes {
         None
@@ -400,9 +417,35 @@ async fn prepare_updated_entry(
         mistakes,
         entry_tactics,
         edges_spotted,
+        playbook_id,
         notes,
     })
     .await
+}
+
+async fn validate_playbook_exists(
+    conn: &Connection,
+    user_id: &str,
+    playbook_id: Option<String>,
+) -> Result<Option<String>> {
+    match playbook_id {
+        Some(playbook_id) => {
+            let mut rows = conn
+                .query(
+                    "SELECT 1 FROM playbooks WHERE id = ?1 AND user_id = ?2 LIMIT 1",
+                    libsql::params![playbook_id.as_str(), user_id],
+                )
+                .await
+                .context("Failed to validate playbook reference")?;
+
+            ensure!(
+                rows.next().await?.is_some(),
+                "playbook '{playbook_id}' was not found"
+            );
+            Ok(Some(playbook_id))
+        }
+        None => Ok(None),
+    }
 }
 
 pub async fn list_journal_entries(conn: &Connection, user_id: &str) -> Result<Vec<JournalEntry>> {
@@ -448,10 +491,11 @@ pub async fn create_journal_entry(
     input: CreateJournalEntryInput,
 ) -> Result<JournalEntry> {
     let id = Uuid::new_v4().to_string();
-    let entry = prepare_new_entry(input).await?;
+    let mut entry = prepare_new_entry(input).await?;
+    entry.playbook_id = validate_playbook_exists(conn, user_id, entry.playbook_id).await?;
 
     conn.execute(
-        "INSERT INTO journal_entries (id, user_id, account_id, reviewed, open_date, close_date, entry_price, exit_price, position_size, symbol, symbol_name, status, total_pl, net_roi, duration, stop_loss, risk_reward, trade_type, mistakes, entry_tactics, edges_spotted, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+        "INSERT INTO journal_entries (id, user_id, account_id, reviewed, open_date, close_date, entry_price, exit_price, position_size, symbol, symbol_name, status, total_pl, net_roi, duration, stop_loss, risk_reward, trade_type, mistakes, entry_tactics, edges_spotted, playbook_id, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
         libsql::params![
             id.as_str(),
             user_id,
@@ -474,6 +518,7 @@ pub async fn create_journal_entry(
             entry.mistakes.as_str(),
             entry.entry_tactics.as_str(),
             entry.edges_spotted.as_str(),
+            entry.playbook_id.as_deref(),
             entry.notes.as_deref(),
         ],
     )
@@ -495,9 +540,13 @@ pub async fn update_journal_entry(
         .await?
         .context("Journal entry not found")?;
     let entry = prepare_updated_entry(&current, input).await?;
+    let entry = PreparedJournalEntry {
+        playbook_id: validate_playbook_exists(conn, user_id, entry.playbook_id).await?,
+        ..entry
+    };
 
     conn.execute(
-        "UPDATE journal_entries SET account_id = ?1, reviewed = ?2, open_date = ?3, close_date = ?4, entry_price = ?5, exit_price = ?6, position_size = ?7, symbol = ?8, symbol_name = ?9, status = ?10, total_pl = ?11, net_roi = ?12, duration = ?13, stop_loss = ?14, risk_reward = ?15, trade_type = ?16, mistakes = ?17, entry_tactics = ?18, edges_spotted = ?19, notes = ?20 WHERE id = ?21 AND user_id = ?22",
+        "UPDATE journal_entries SET account_id = ?1, reviewed = ?2, open_date = ?3, close_date = ?4, entry_price = ?5, exit_price = ?6, position_size = ?7, symbol = ?8, symbol_name = ?9, status = ?10, total_pl = ?11, net_roi = ?12, duration = ?13, stop_loss = ?14, risk_reward = ?15, trade_type = ?16, mistakes = ?17, entry_tactics = ?18, edges_spotted = ?19, playbook_id = ?20, notes = ?21 WHERE id = ?22 AND user_id = ?23",
         libsql::params![
             entry.account_id.as_str(),
             entry.reviewed,
@@ -518,6 +567,7 @@ pub async fn update_journal_entry(
             entry.mistakes.as_str(),
             entry.entry_tactics.as_str(),
             entry.edges_spotted.as_str(),
+            entry.playbook_id.as_deref(),
             entry.notes.as_deref(),
             id,
             user_id,

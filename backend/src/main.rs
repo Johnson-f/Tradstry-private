@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let cors = allowed_origins
             .iter()
             .fold(Cors::default(), |cors, origin| cors.allowed_origin(origin))
-            .allowed_methods(vec!["GET", "POST", "OPTIONS"])
+            .allowed_methods(vec!["GET", "POST", "DELETE", "OPTIONS"])
             .allowed_headers(vec![
                 actix_web::http::header::AUTHORIZATION,
                 actix_web::http::header::CONTENT_TYPE,

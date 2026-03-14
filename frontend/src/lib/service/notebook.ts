@@ -188,3 +188,27 @@ export async function uploadNotebookImage(
     createdAt: img.created_at,
   } as NotebookImage;
 }
+
+export async function deleteNotebookImage(
+  getToken: TokenProvider,
+  imageId: string,
+): Promise<void> {
+  const token = await getToken();
+
+  const response = await fetch(
+    `${getBackendBaseUrl()}/notebook/images/${imageId}`,
+    {
+      method: "DELETE",
+      headers: token
+        ? {
+            Authorization: `Bearer ${token}`,
+          }
+        : undefined,
+    },
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || "Notebook image delete failed");
+  }
+}

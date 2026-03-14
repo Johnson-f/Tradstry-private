@@ -1,5 +1,6 @@
 pub mod accounts_table;
 pub mod journal_table;
+pub mod playbook_table;
 pub mod notebook_images;
 pub mod notebook_table;
 pub mod users_table;
@@ -65,11 +66,28 @@ CREATE TABLE IF NOT EXISTS journal_entries (
     mistakes TEXT NOT NULL,
     entry_tactics TEXT NOT NULL,
     edges_spotted TEXT NOT NULL,
+    playbook_id TEXT,
     notes TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_journal_entries_user_id ON journal_entries (user_id);
 CREATE INDEX IF NOT EXISTS idx_journal_entries_symbol ON journal_entries (symbol);
+CREATE INDEX IF NOT EXISTS idx_journal_entries_playbook_id ON journal_entries (playbook_id);
+
+CREATE TABLE IF NOT EXISTS playbooks (
+    id TEXT PRIMARY KEY NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    edge_name TEXT NOT NULL,
+    entry_rules TEXT NOT NULL,
+    exit_rules TEXT NOT NULL,
+    position_sizing_rules TEXT NOT NULL,
+    additional_rules TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_playbooks_user_id ON playbooks (user_id);
 
 CREATE TABLE IF NOT EXISTS notebook_notes (
     id TEXT PRIMARY KEY NOT NULL,

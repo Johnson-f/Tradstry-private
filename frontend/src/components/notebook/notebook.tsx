@@ -3,6 +3,7 @@
 import { Add01Icon, Notebook01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   useAccountsLoading,
   useActiveAccount,
@@ -19,6 +20,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   useCreateNotebookNote,
+  useDeleteNotebookNote,
+  useDeleteNotebookImage,
   useNotebookNotes,
   useUpdateNotebookNote,
   useUploadNotebookImage,
@@ -31,6 +34,17 @@ import {
 } from "./editor";
 import { ManageNotebook } from "./manage-notebook";
 
+function getNotebookActionErrorMessage(
+  error: unknown,
+  fallback: string,
+): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  return fallback;
+}
+
 export function Notebook() {
   const accountsLoading = useAccountsLoading();
   const activeAccount = useActiveAccount();
@@ -40,10 +54,14 @@ export function Notebook() {
     isPending,
   } = useNotebookNotes(activeAccount?.id ?? null);
   const createNoteMutation = useCreateNotebookNote();
+  const deleteNoteMutation = useDeleteNotebookNote();
   const uploadImageMutation = useUploadNotebookImage();
+  const deleteImageMutation = useDeleteNotebookImage();
   const updateNoteMutation = useUpdateNotebookNote();
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
   const lastSavedByNoteRef = useRef<Record<string, string>>({});
+  const latestSaveRequestRef = useRef(0);
 
   useEffect(() => {
     if (notes.length === 0) {
@@ -76,6 +94,7 @@ export function Notebook() {
     }
 
     const documentJson = createDefaultNotebookDocumentJson();
+    const toastId = toast.loading("Creating note...");
 
     createNoteMutation.mutate(
       {
@@ -85,11 +104,47 @@ export function Notebook() {
       },
       {
         onSuccess: (note) => {
+          toast.success("Note created.", { id: toastId });
           lastSavedByNoteRef.current[note.id] = note.documentJson;
           setSelectedNoteId(note.id);
         },
+        onError: (error) => {
+          toast.error(
+            getNotebookActionErrorMessage(error, "Failed to create note."),
+            { id: toastId },
+          );
+        },
       },
     );
+  };
+
+  const handleDeleteNote = (noteId: string) => {
+    const toastId = toast.loading("Deleting note...");
+    setDeletingNoteId(noteId);
+
+    deleteNoteMutation.mutate(noteId, {
+      onSuccess: () => {
+        toast.success("Note deleted.", { id: toastId });
+        setSelectedNoteId((currentSelectedNoteId) => {
+          if (currentSelectedNoteId !== noteId) {
+            return currentSelectedNoteId;
+          }
+
+          return notes.find((note) => note.id !== noteId)?.id ?? null;
+        });
+      },
+      onError: (error) => {
+        toast.error(
+          getNotebookActionErrorMessage(error, "Failed to delete note."),
+          { id: toastId },
+        );
+      },
+      onSettled: () => {
+        setDeletingNoteId((currentDeletingNoteId) =>
+          currentDeletingNoteId === noteId ? null : currentDeletingNoteId,
+        );
+      },
+    });
   };
 
   useEffect(() => {
@@ -118,12 +173,38 @@ export function Notebook() {
     }
 
     lastSavedByNoteRef.current[selectedNote.id] = serializedEditorState;
+    const saveRequestId = ++latestSaveRequestRef.current;
+    const toastId = `notebook-save-${selectedNote.id}`;
+
+    toast.loading("Saving note...", { id: toastId });
+
     updateNoteMutation.mutate({
       id: selectedNote.id,
       input: {
         documentJson: serializedEditorState,
         accountId: selectedNote.accountId,
         tradeIds: selectedNote.tradeIds,
+      },
+    }, {
+      onSuccess: () => {
+        if (latestSaveRequestRef.current !== saveRequestId) {
+          return;
+        }
+
+        toast.success("Note saved.", {
+          id: toastId,
+          duration: 1500,
+        });
+      },
+      onError: (error) => {
+        if (latestSaveRequestRef.current !== saveRequestId) {
+          return;
+        }
+
+        toast.error(
+          getNotebookActionErrorMessage(error, "Failed to save note."),
+          { id: toastId },
+        );
       },
     });
   };
@@ -145,8 +226,10 @@ export function Notebook() {
           activeAccountName={activeAccount?.name ?? null}
           disabled={!activeAccount}
           isCreating={createNoteMutation.isPending}
+          deletingNoteId={deletingNoteId}
           onCreateNote={handleCreateNote}
           onSelectNote={setSelectedNoteId}
+          onDeleteNote={handleDeleteNote}
         />
       </div>
       {accountsLoading || (activeAccount && isNotesLoading) ? (
@@ -205,11 +288,48 @@ export function Notebook() {
           onSerializedChange={handleSerializedChange}
           onUploadImage={
             selectedNote
-              ? (file) =>
-                  uploadImageMutation.mutateAsync({
-                    noteId: selectedNote.id,
-                    file,
-                  })
+              ? async (file) => {
+                  const toastId = toast.loading("Uploading image...");
+
+                  try {
+                    const image = await uploadImageMutation.mutateAsync({
+                      noteId: selectedNote.id,
+                      file,
+                    });
+                    toast.success("Image uploaded.", { id: toastId });
+                    return image;
+                  } catch (error) {
+                    toast.error(
+                      getNotebookActionErrorMessage(
+                        error,
+                        "Failed to upload image.",
+                      ),
+                      { id: toastId },
+                    );
+                    throw error;
+                  }
+                }
+              : undefined
+          }
+          onDeleteImage={
+            selectedNote
+              ? async (imageId) => {
+                  const toastId = toast.loading("Deleting image...");
+
+                  try {
+                    await deleteImageMutation.mutateAsync(imageId);
+                    toast.success("Image deleted.", { id: toastId });
+                  } catch (error) {
+                    toast.error(
+                      getNotebookActionErrorMessage(
+                        error,
+                        "Failed to delete image.",
+                      ),
+                      { id: toastId },
+                    );
+                    throw error;
+                  }
+                }
               : undefined
           }
         />

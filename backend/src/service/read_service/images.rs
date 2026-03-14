@@ -15,3 +15,7 @@ pub async fn create_notebook_image(
 pub async fn get_notebook_image(user_db: &UserDb, id: &str) -> Result<Option<NotebookImage>> {
     notebook_images::find_notebook_image(user_db.conn(), id, user_db.user_id()).await
 }
+
+pub async fn delete_notebook_image(user_db: &UserDb, id: &str) -> Result<()> {
+    notebook_images::delete_notebook_image(user_db.conn(), id, user_db.user_id()).await
+}

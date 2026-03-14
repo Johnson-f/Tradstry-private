@@ -104,3 +104,21 @@ export function useUploadNotebookImage() {
     },
   });
 }
+
+export function useDeleteNotebookImage() {
+  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (imageId: string) => {
+      if (!isLoaded || !isSignedIn) {
+        throw new Error("You must be signed in to delete notebook images");
+      }
+
+      return notebookService.deleteNotebookImage(() => getToken(), imageId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: NOTEBOOK_KEY });
+    },
+  });
+}

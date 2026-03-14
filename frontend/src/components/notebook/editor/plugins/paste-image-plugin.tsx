@@ -114,7 +114,6 @@ export function PasteImagePlugin({
               });
 
               console.error("Failed to upload pasted notebook image", error);
-              window.alert("Failed to upload pasted image.");
             }
           }),
         );

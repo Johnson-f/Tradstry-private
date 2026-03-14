@@ -3,9 +3,11 @@
 import {
   Add01Icon,
   Cancel01Icon,
+  Delete02Icon,
   Note01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Drawer,
@@ -16,6 +18,11 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "@/components/ui/drawer";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { NotebookNote } from "@/lib/types/notebook";
 import { cn } from "@/lib/utils";
@@ -26,17 +33,23 @@ export function ManageNotebook({
   activeAccountName,
   disabled = false,
   isCreating = false,
+  deletingNoteId = null,
   onCreateNote,
   onSelectNote,
+  onDeleteNote,
 }: {
   notes: NotebookNote[];
   selectedNoteId: string | null;
   activeAccountName: string | null;
   disabled?: boolean;
   isCreating?: boolean;
+  deletingNoteId?: string | null;
   onCreateNote: () => void;
   onSelectNote: (noteId: string) => void;
+  onDeleteNote: (noteId: string) => void;
 }) {
+  const [confirmingNoteId, setConfirmingNoteId] = useState<string | null>(null);
+
   return (
     <Drawer direction="right">
       <DrawerTrigger asChild>
@@ -86,43 +99,111 @@ export function ManageNotebook({
             ) : (
               <div className="space-y-2">
                 {notes.map((note) => (
-                  <button
+                  <div
                     key={note.id}
-                    type="button"
                     className={cn(
-                      "flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-left transition-colors",
+                      "flex items-start gap-2 rounded-xl border px-4 py-3 transition-colors",
                       selectedNoteId === note.id
                         ? "border-slate-900 bg-slate-900 text-white"
                         : "border-slate-200 bg-white text-slate-900 hover:bg-slate-50",
                     )}
-                    onClick={() => onSelectNote(note.id)}
                   >
-                    <span
-                      className={cn(
-                        "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg",
-                        selectedNoteId === note.id
-                          ? "bg-white/10 text-white"
-                          : "bg-slate-100 text-slate-700",
-                      )}
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                      onClick={() => onSelectNote(note.id)}
                     >
-                      <HugeiconsIcon icon={Note01Icon} strokeWidth={2} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">
-                        {note.title}
-                      </span>
                       <span
                         className={cn(
-                          "mt-1 block text-xs",
+                          "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg",
                           selectedNoteId === note.id
-                            ? "text-slate-300"
-                            : "text-slate-500",
+                            ? "bg-white/10 text-white"
+                            : "bg-slate-100 text-slate-700",
                         )}
                       >
-                        {new Date(note.updatedAt).toLocaleString()}
+                        <HugeiconsIcon icon={Note01Icon} strokeWidth={2} />
                       </span>
-                    </span>
-                  </button>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">
+                          {note.title}
+                        </span>
+                        <span
+                          className={cn(
+                            "mt-1 block text-xs",
+                            selectedNoteId === note.id
+                              ? "text-slate-300"
+                              : "text-slate-500",
+                          )}
+                        >
+                          {new Date(note.updatedAt).toLocaleString()}
+                        </span>
+                      </span>
+                    </button>
+
+                    <Popover
+                      open={confirmingNoteId === note.id}
+                      onOpenChange={(open) => {
+                        setConfirmingNoteId(open ? note.id : null);
+                      }}
+                    >
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className={cn(
+                            "mt-0.5 shrink-0 rounded-lg",
+                            selectedNoteId === note.id
+                              ? "text-slate-300 hover:bg-white/10 hover:text-white"
+                              : "text-slate-500 hover:bg-slate-100 hover:text-slate-950",
+                          )}
+                          aria-label="Delete note"
+                          disabled={deletingNoteId === note.id}
+                        >
+                          <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="end"
+                        className="w-72 space-y-3"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-slate-950">
+                            Delete note?
+                          </p>
+                          <p className="text-sm leading-6 text-slate-500">
+                            This permanently deletes this note and its notebook
+                            images.
+                          </p>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setConfirmingNoteId(null)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            disabled={deletingNoteId === note.id}
+                            onClick={() => {
+                              onDeleteNote(note.id);
+                              setConfirmingNoteId(null);
+                            }}
+                          >
+                            {deletingNoteId === note.id
+                              ? "Deleting..."
+                              : "Delete"}
+                          </Button>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
                 ))}
               </div>
             )}

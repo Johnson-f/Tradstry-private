@@ -220,3 +220,31 @@ pub async fn get_notebook_image(
 
     Ok(HttpResponse::Ok().json(image))
 }
+
+pub async fn delete_notebook_image(
+    req: HttpRequest,
+    path: web::Path<String>,
+    turso: web::Data<Arc<TursoClient>>,
+    cloudinary: web::Data<Arc<CloudinaryClient>>,
+) -> Result<HttpResponse> {
+    let user_db = get_user_db(&req, turso.get_ref())
+        .await
+        .map_err(error::ErrorUnauthorized)?;
+    let image_id = path.into_inner();
+
+    let image = image_service::get_notebook_image(&user_db, &image_id)
+        .await
+        .map_err(error::ErrorInternalServerError)?
+        .ok_or_else(|| error::ErrorNotFound("Notebook image not found"))?;
+
+    cloudinary
+        .delete_notebook_image(image.cloudinary_public_id.clone())
+        .await
+        .map_err(error::ErrorInternalServerError)?;
+
+    image_service::delete_notebook_image(&user_db, &image.id)
+        .await
+        .map_err(error::ErrorInternalServerError)?;
+
+    Ok(HttpResponse::NoContent().finish())
+}

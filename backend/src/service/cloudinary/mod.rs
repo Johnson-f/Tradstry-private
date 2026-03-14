@@ -96,4 +96,18 @@ impl CloudinaryClient {
             UploadResult::Error(payload) => Err(anyhow!(payload.error.message)),
         }
     }
+
+    pub async fn delete_notebook_image(&self, public_id: String) -> Result<()> {
+        let upload = Upload::new(
+            self.api_key.clone(),
+            self.cloud_name.clone(),
+            self.api_secret.clone(),
+        );
+        let result = upload.destroy(public_id).await?;
+
+        match result.result.as_str() {
+            "ok" | "not found" => Ok(()),
+            other => Err(anyhow!("Unexpected Cloudinary destroy result: {other}")),
+        }
+    }
 }

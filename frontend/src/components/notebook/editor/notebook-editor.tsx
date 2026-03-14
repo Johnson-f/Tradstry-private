@@ -32,7 +32,10 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { NotebookImage } from "@/lib/types/notebook";
-import { NotebookImageNode } from "./nodes/notebook-image-node";
+import {
+  NotebookImageActionsProvider,
+  NotebookImageNode,
+} from "./nodes/notebook-image-node";
 import { PasteImagePlugin } from "./plugins/paste-image-plugin";
 import { SlashCommandPlugin } from "./plugins/slash-command-plugin";
 import { notebookEditorTheme } from "./theme";
@@ -40,6 +43,9 @@ import { notebookEditorTheme } from "./theme";
 const NOTEBOOK_STORAGE_KEY = "tradstry-notebook-editor-state";
 const HEADER_PLACEHOLDER = "Header";
 const BODY_PLACEHOLDER = "Start writing, or type / for commands.";
+const NOTEBOOK_EDITOR_COMPOSER_KEY = `TradstryNotebookEditor:${Math.random()
+  .toString(36)
+  .slice(2)}`;
 
 export function createDefaultNotebookDocumentJson(): string {
   return JSON.stringify({
@@ -468,11 +474,13 @@ export function NotebookEditor({
   draftStorageKey = NOTEBOOK_STORAGE_KEY,
   onSerializedChange,
   onUploadImage,
+  onDeleteImage,
 }: {
   initialDocumentJson?: string | null;
   draftStorageKey?: string;
   onSerializedChange?: (serializedEditorState: string) => void;
   onUploadImage?: (file: File) => Promise<NotebookImage>;
+  onDeleteImage?: (imageId: string) => Promise<void>;
 }) {
   const [initialEditorState, setInitialEditorState] = useState<string | null>(
     null,
@@ -509,6 +517,7 @@ export function NotebookEditor({
   return (
     <section className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-10">
       <LexicalComposer
+        key={NOTEBOOK_EDITOR_COMPOSER_KEY}
         initialConfig={{
           namespace: "TradstryNotebookEditor",
           theme: notebookEditorTheme,
@@ -530,29 +539,31 @@ export function NotebookEditor({
           },
         }}
       >
-        <HydrationPlugin initialEditorState={initialEditorState} />
-        <TitleBehaviorPlugin />
-        <div className="relative min-h-[42rem]">
-          <RichTextPlugin
-            contentEditable={
-              <ContentEditable className="min-h-[42rem] resize-none px-1 py-2 text-[15px] leading-7 text-slate-800 outline-none" />
-            }
-            placeholder={null}
-            ErrorBoundary={LexicalErrorBoundary}
-          />
-          <PlaceholderPlugin />
-          <HistoryPlugin />
-          <ListPlugin />
-          <LinkPlugin />
-          <TabIndentationPlugin />
-          <MarkdownShortcutPlugin />
-          <SlashCommandPlugin />
-          <PasteImagePlugin onUploadImage={onUploadImage} />
-          <PersistencePlugin
-            storageKey={draftStorageKey}
-            onSerializedChange={onSerializedChange}
-          />
-        </div>
+        <NotebookImageActionsProvider onDeleteImage={onDeleteImage}>
+          <HydrationPlugin initialEditorState={initialEditorState} />
+          <TitleBehaviorPlugin />
+          <div className="relative min-h-[42rem]">
+            <RichTextPlugin
+              contentEditable={
+                <ContentEditable className="min-h-[42rem] resize-none px-1 py-2 text-[15px] leading-7 text-slate-800 outline-none" />
+              }
+              placeholder={null}
+              ErrorBoundary={LexicalErrorBoundary}
+            />
+            <PlaceholderPlugin />
+            <HistoryPlugin />
+            <ListPlugin />
+            <LinkPlugin />
+            <TabIndentationPlugin />
+            <MarkdownShortcutPlugin />
+            <SlashCommandPlugin />
+            <PasteImagePlugin onUploadImage={onUploadImage} />
+            <PersistencePlugin
+              storageKey={draftStorageKey}
+              onSerializedChange={onSerializedChange}
+            />
+          </div>
+        </NotebookImageActionsProvider>
       </LexicalComposer>
     </section>
   );

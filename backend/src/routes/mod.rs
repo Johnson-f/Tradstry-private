@@ -4,7 +4,7 @@ mod notebook_images;
 use actix_web::web;
 
 pub use graphql::{graphiql, graphql_handler};
-pub use notebook_images::{get_notebook_image, upload_notebook_image};
+pub use notebook_images::{delete_notebook_image, get_notebook_image, upload_notebook_image};
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -15,6 +15,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     .service(
         web::scope("/notebook/images")
             .route("/upload", web::post().to(upload_notebook_image))
+            .route("/{id}", web::delete().to(delete_notebook_image))
             .route("/{id}", web::get().to(get_notebook_image)),
     );
 }
