@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from pathlib import Path
 from uuid import uuid4
 
 import uvicorn
@@ -15,12 +17,27 @@ from tradstry_agents.graphs import AgentGraphRunner
 from tradstry_agents.memory import OpenVikingMemoryStore
 from tradstry_agents.providers import GroqChatProvider, OpenRouterEmbeddingProvider
 from tradstry_agents.prompts import PromptLibrary
-from tradstry_agents.schemas import AgentEnvelope
+from tradstry_agents.schemas import (
+    AgentEnvelope,
+    AgentEventType,
+    GraphEventType,
+    RequestStartPayload,
+    JsonPayload,
+    ResponseCompletedPayload,
+    ResponseDeltaPayload,
+    ResponseErrorPayload,
+    ToolArguments,
+    ToolCallPayload,
+    ToolName,
+    ToolResultPayload,
+    parse_payload_by_event,
+    validate_outbound_payload,
+)
 from tradstry_agents.tools import ToolContext, ToolRuntime
 
 
 class AgentServiceRuntime:
-    def __init__(self):
+    def __init__(self) -> None:
         self.settings = load_settings()
         self.embedding_provider = OpenRouterEmbeddingProvider(self.settings)
         self.chat_provider = GroqChatProvider(self.settings)
@@ -39,43 +56,51 @@ class AgentConnection:
         self.websocket = websocket
         self.runtime = runtime
         self._request_tasks: dict[str, asyncio.Task[None]] = {}
-        self._pending_tool_calls: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._pending_tool_calls: dict[str, asyncio.Future[JsonPayload]] = {}
 
     async def handle(self) -> None:
         await self.websocket.accept()
         try:
             while True:
                 raw = await self.websocket.receive_text()
-                envelope = AgentEnvelope.model_validate_json(raw)
+                envelope = AgentEnvelope.parse_wire(raw)
                 await self._dispatch(envelope)
         except WebSocketDisconnect:
             await self._cancel_all()
 
     async def _dispatch(self, envelope: AgentEnvelope) -> None:
-        if envelope.type == "request.start":
-            task = asyncio.create_task(self._run_request(envelope))
-            self._request_tasks[envelope.request_id] = task
-        elif envelope.type == "request.cancel":
-            task = self._request_tasks.get(envelope.request_id)
-            if task is not None:
-                task.cancel()
-        elif envelope.type == "request.ping":
+        if envelope.type is AgentEventType.REQUEST_START:
+            request_task = asyncio.create_task(self._run_request(envelope))
+            self._request_tasks[envelope.request_id] = request_task
+        elif envelope.type is AgentEventType.REQUEST_CANCEL:
+            cancelled_task = self._request_tasks.get(envelope.request_id)
+            if cancelled_task is not None:
+                self._request_tasks.pop(envelope.request_id, None)
+                cancelled_task.cancel()
+        elif envelope.type is AgentEventType.REQUEST_PING:
             await self._send(
-                "response.pong",
+                AgentEventType.RESPONSE_PONG.value,
                 envelope.request_id,
                 envelope.session_id,
                 envelope.user_id,
                 {},
             )
-        elif envelope.type == "tool.result":
-            tool_call_id = envelope.payload["toolCallId"]
+        elif envelope.type is AgentEventType.TOOL_RESULT:
+            tool_result = parse_payload_by_event(AgentEventType.TOOL_RESULT, envelope.payload)
+            tool_call_id = tool_result.tool_call_id
             future = self._pending_tool_calls.pop(tool_call_id, None)
             if future is not None and not future.done():
-                future.set_result(envelope.payload)
+                future.set_result(tool_result.model_dump(by_alias=True))
 
     async def _run_request(self, envelope: AgentEnvelope) -> None:
         try:
-            message = str(envelope.payload.get("message", "")).strip()
+            message_payload = parse_payload_by_event(
+                AgentEventType.REQUEST_START, envelope.payload
+            )
+            if not isinstance(message_payload, RequestStartPayload):
+                raise ValueError("request.start payload is invalid")
+
+            message = message_payload.message.strip()
             if not message:
                 raise ValueError("request.start requires payload.message")
 
@@ -113,11 +138,11 @@ class AgentConnection:
 
             for chunk in _chunk_text(final_answer):
                 await self._send(
-                    "response.delta",
+                    AgentEventType.RESPONSE_DELTA.value,
                     envelope.request_id,
                     envelope.session_id,
                     envelope.user_id,
-                    {"text": chunk},
+                    ResponseDeltaPayload(text=chunk).model_dump(),
                 )
 
             await self.runtime.memory_store.append_assistant_turn(
@@ -131,53 +156,57 @@ class AgentConnection:
                 response_text=final_answer,
             )
             await self._send(
-                "response.completed",
+                AgentEventType.RESPONSE_COMPLETED.value,
                 envelope.request_id,
                 envelope.session_id,
                 envelope.user_id,
-                {"text": final_answer, "promotedMemoryUris": promoted},
+                ResponseCompletedPayload(
+                    text=final_answer,
+                    promoted_memory_uris=promoted,
+                ).model_dump(by_alias=True),
             )
         except asyncio.CancelledError:
             await self._send(
-                "response.error",
+                AgentEventType.RESPONSE_ERROR.value,
                 envelope.request_id,
                 envelope.session_id,
                 envelope.user_id,
-                {"message": "request cancelled"},
+                ResponseErrorPayload(message="request cancelled").model_dump(),
             )
             raise
         except Exception as exc:
             await self._send(
-                "response.error",
+                AgentEventType.RESPONSE_ERROR.value,
                 envelope.request_id,
                 envelope.session_id,
                 envelope.user_id,
-                {"message": str(exc)},
+                ResponseErrorPayload(message=str(exc)).model_dump(),
             )
         finally:
             self._request_tasks.pop(envelope.request_id, None)
 
     async def _call_tool(
-        self, *, envelope: AgentEnvelope, tool_name: str, arguments: dict[str, Any]
-    ) -> dict[str, Any]:
+        self, *, envelope: AgentEnvelope, tool_name: ToolName, arguments: ToolArguments
+    ) -> JsonPayload:
         tool_call_id = uuid4().hex
-        future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        future: asyncio.Future[JsonPayload] = asyncio.get_running_loop().create_future()
         self._pending_tool_calls[tool_call_id] = future
         await self._send(
-            "tool.call",
+            AgentEventType.TOOL_CALL.value,
             envelope.request_id,
             envelope.session_id,
             envelope.user_id,
-            {
-                "toolCallId": tool_call_id,
-                "toolName": tool_name,
-                "arguments": arguments,
-            },
+            ToolCallPayload(
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
+                arguments=arguments,
+            ).model_dump(by_alias=True),
         )
-        result = await future
-        if not result.get("ok", False):
-            raise RuntimeError(result.get("error") or f"{tool_name} failed")
-        return dict(result.get("result", {}))
+        tool_result_raw = await future
+        tool_result = ToolResultPayload.model_validate(tool_result_raw)
+        if not tool_result.ok:
+            raise RuntimeError(tool_result.error or f"{tool_name} failed")
+        return dict(tool_result.result)
 
     async def _send(
         self,
@@ -185,8 +214,25 @@ class AgentConnection:
         request_id: str,
         session_id: str,
         user_id: str,
-        payload: dict[str, Any],
+        payload: JsonPayload,
     ) -> None:
+        if message_type == AgentEventType.RESPONSE_DELTA.value:
+            validate_outbound_payload(AgentEventType.RESPONSE_DELTA, payload)
+        elif message_type == AgentEventType.RESPONSE_COMPLETED.value:
+            validate_outbound_payload(AgentEventType.RESPONSE_COMPLETED, payload)
+        elif message_type == AgentEventType.RESPONSE_ERROR.value:
+            validate_outbound_payload(AgentEventType.RESPONSE_ERROR, payload)
+        elif message_type == AgentEventType.TOOL_CALL.value:
+            validate_outbound_payload(AgentEventType.TOOL_CALL, payload)
+        elif message_type == GraphEventType.MEMORY_RETRIEVED.value:
+            validate_outbound_payload(GraphEventType.MEMORY_RETRIEVED, payload)
+        elif message_type == GraphEventType.ROUTE_SELECTED.value:
+            validate_outbound_payload(GraphEventType.ROUTE_SELECTED, payload)
+        elif message_type == GraphEventType.TOOL_STARTED.value:
+            validate_outbound_payload(GraphEventType.TOOL_STARTED, payload)
+        elif message_type == GraphEventType.TOOL_COMPLETED.value:
+            validate_outbound_payload(GraphEventType.TOOL_COMPLETED, payload)
+
         envelope = {
             "type": message_type,
             "request_id": request_id,
@@ -202,10 +248,14 @@ class AgentConnection:
         for task in list(self._request_tasks.values()):
             with contextlib.suppress(Exception):
                 await task
+        for future in list(self._pending_tool_calls.values()):
+            future.cancel()
+        self._pending_tool_calls.clear()
+        self._request_tasks.clear()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     runtime = AgentServiceRuntime()
     await runtime.startup()
     app.state.runtime = runtime
@@ -233,11 +283,19 @@ def create_app() -> FastAPI:
 
 def run() -> None:
     settings = load_settings()
+    reload_enabled = os.getenv("AGENTS_SERVICE_RELOAD", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    project_src_dir = str(Path(__file__).resolve().parents[2])
     uvicorn.run(
         "main:app",
         host=settings.host,
         port=settings.port,
-        reload=False,
+        reload=reload_enabled,
+        reload_dirs=[project_src_dir] if reload_enabled else None,
         log_level="info",
     )
 

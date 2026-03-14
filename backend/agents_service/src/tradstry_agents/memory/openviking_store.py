@@ -1,25 +1,22 @@
 from __future__ import annotations
 
+import inspect
 import json
 import math
 import os
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
+from typing import Protocol, TypedDict, cast
 from uuid import uuid4
 
-from openviking import AsyncOpenViking
+from openviking import AsyncOpenViking  # type: ignore[import-untyped]
 
 from tradstry_agents.config import Settings
 from tradstry_agents.providers import EmbeddingProvider
 
 
-MEMORY_BUCKETS = ("preferences", "goals", "entities", "events", "patterns", "lessons")
-
-
-@dataclass
+@dataclass(frozen=True)
 class RetrievedMemory:
     uri: str
     bucket: str
@@ -28,11 +25,59 @@ class RetrievedMemory:
     score: float
 
 
+class OpenVikingSession(Protocol):
+    def add_message(self, role: str, /, *args: object, **kwargs: object) -> object:
+        ...
+
+
+class OpenVikingClient(Protocol):
+    def session(self, *, session_id: str) -> OpenVikingSession:
+        ...
+
+    async def initialize(self) -> None:
+        ...
+
+    async def close(self) -> None:
+        ...
+
+
+class _StoredMetadata(TypedDict, total=False):
+    uri: str
+    bucket: str
+    title: str
+    created_at: str
+    updated_at: str
+    source_text: str
+    vector: list[float]
+
+
+class _MemoryCandidate(TypedDict):
+    bucket: str
+    title: str
+    abstract: str
+    content: str
+
+
+class _DocumentRecord(TypedDict):
+    uri: str
+    bucket: str
+    abstract: str
+    content: str
+    vector: list[float]
+
+
+class _FallbackSessionMessage(TypedDict):
+    id: str
+    role: str
+    content: str
+    created_at: str
+
+
 class OpenVikingMemoryStore:
     def __init__(self, settings: Settings, embedding_provider: EmbeddingProvider):
         self._settings = settings
         self._embedding_provider = embedding_provider
-        self._client: AsyncOpenViking | None = None
+        self._client: OpenVikingClient | None = None
         self._base = settings.openviking_data_root
 
     async def initialize(self) -> None:
@@ -52,7 +97,7 @@ class OpenVikingMemoryStore:
     async def append_user_turn(self, *, user_id: str, session_id: str, content: str) -> None:
         if self._client is not None:
             session = self._session(session_id)
-            await session.add_message("user", content=content)
+            await self._append_session_message(session, "user", content)
             return
         self._append_fallback_session_line(
             user_id=user_id,
@@ -61,12 +106,10 @@ class OpenVikingMemoryStore:
             content=content,
         )
 
-    async def append_assistant_turn(
-        self, *, user_id: str, session_id: str, content: str
-    ) -> None:
+    async def append_assistant_turn(self, *, user_id: str, session_id: str, content: str) -> None:
         if self._client is not None:
             session = self._session(session_id)
-            await session.add_message("assistant", content=content)
+            await self._append_session_message(session, "assistant", content)
             return
         self._append_fallback_session_line(
             user_id=user_id,
@@ -75,23 +118,32 @@ class OpenVikingMemoryStore:
             content=content,
         )
 
+    async def _append_session_message(self, session: OpenVikingSession, role: str, content: str) -> None:
+        call_result: object
+        try:
+            call_result = session.add_message(role, content=content)
+        except TypeError:
+            call_result = session.add_message(role, content)
+        await _await_if_needed(call_result)
+
     async def retrieve_context(
         self, *, user_id: str, session_id: str, query: str, limit: int = 4
     ) -> list[RetrievedMemory]:
-        docs = await self._load_memory_documents(user_id=user_id)
-        if not docs:
+        del session_id
+        documents = await self._load_memory_documents(user_id=user_id)
+        if not documents:
             return []
 
         query_vector = await self._embedding_provider.embed_text(query)
-        ranked = []
-        for doc in docs:
-            score = _cosine_similarity(query_vector, doc["vector"])
+        ranked: list[RetrievedMemory] = []
+        for document in documents:
+            score = _cosine_similarity(query_vector, document["vector"])
             ranked.append(
                 RetrievedMemory(
-                    uri=doc["uri"],
-                    bucket=doc["bucket"],
-                    abstract=doc["abstract"],
-                    content=doc["content"],
+                    uri=document["uri"],
+                    bucket=document["bucket"],
+                    abstract=document["abstract"],
+                    content=document["content"],
                     score=score,
                 )
             )
@@ -102,7 +154,10 @@ class OpenVikingMemoryStore:
     async def promote_memories(
         self, *, user_id: str, request_text: str, response_text: str
     ) -> list[str]:
-        candidates = self._build_memory_candidates(request_text)
+        if not response_text.strip():
+            return []
+
+        candidates = self._build_memory_candidates(request_text=request_text)
         stored: list[str] = []
         for candidate in candidates:
             uri = await self._store_memory_doc(
@@ -116,7 +171,7 @@ class OpenVikingMemoryStore:
             stored.append(uri)
         return stored
 
-    def _session(self, session_id: str):
+    def _session(self, session_id: str) -> OpenVikingSession:
         if self._client is None:
             raise RuntimeError("OpenVikingMemoryStore is not initialized")
         return self._client.session(session_id=session_id)
@@ -127,7 +182,7 @@ class OpenVikingMemoryStore:
         session_root = self._base / "session" / user_id / session_id
         session_root.mkdir(parents=True, exist_ok=True)
         messages_path = session_root / "messages.jsonl"
-        payload = {
+        payload: _FallbackSessionMessage = {
             "id": f"msg_{uuid4().hex}",
             "role": role,
             "content": content,
@@ -136,8 +191,8 @@ class OpenVikingMemoryStore:
         with messages_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload) + "\n")
 
-    async def _load_memory_documents(self, *, user_id: str) -> list[dict[str, Any]]:
-        results: list[dict[str, Any]] = []
+    async def _load_memory_documents(self, *, user_id: str) -> list[_DocumentRecord]:
+        results: list[_DocumentRecord] = []
         user_root = self._base / "user" / user_id
         if not user_root.exists():
             return results
@@ -149,15 +204,31 @@ class OpenVikingMemoryStore:
             if not abstract_path.exists() or not meta_path.exists():
                 continue
 
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            metadata = _coerce_dict(meta_path.read_text(encoding="utf-8"))
+            if not metadata:
+                continue
+
+            uri = metadata.get("uri")
+            if not isinstance(uri, str):
+                continue
+
+            abstract = abstract_path.read_text(encoding="utf-8").strip()
+            if not abstract:
+                continue
+
+            vector = _coerce_vector(metadata.get("vector"))
+            if not vector:
+                continue
+
+            content = detail_path.read_text(encoding="utf-8").strip()
             results.append(
-                {
-                    "uri": meta["uri"],
-                    "bucket": bucket,
-                    "abstract": abstract_path.read_text(encoding="utf-8").strip(),
-                    "content": detail_path.read_text(encoding="utf-8").strip(),
-                    "vector": meta.get("vector", []),
-                }
+                _DocumentRecord(
+                    uri=uri,
+                    bucket=bucket,
+                    abstract=abstract,
+                    content=content,
+                    vector=vector,
+                )
             )
         return results
 
@@ -176,7 +247,7 @@ class OpenVikingMemoryStore:
         doc_root.mkdir(parents=True, exist_ok=True)
         uri = f"viking://user/{user_id}/{bucket}/{slug}"
         vector = await self._embedding_provider.embed_text(f"{abstract}\n\n{content}")
-        meta = {
+        metadata: _StoredMetadata = {
             "uri": uri,
             "bucket": bucket,
             "title": title,
@@ -185,16 +256,16 @@ class OpenVikingMemoryStore:
             "source_text": source_text,
             "vector": vector,
         }
-        (doc_root / ".meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        (doc_root / ".meta.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         (doc_root / ".abstract.md").write_text(abstract.strip(), encoding="utf-8")
         (doc_root / ".overview.md").write_text(content.strip(), encoding="utf-8")
         (doc_root / "detail.md").write_text(content.strip(), encoding="utf-8")
         return uri
 
-    def _build_memory_candidates(self, request_text: str) -> list[dict[str, str]]:
+    def _build_memory_candidates(self, *, request_text: str) -> list[_MemoryCandidate]:
         text = request_text.strip()
         lowered = text.lower()
-        candidates: list[dict[str, str]] = []
+        candidates: list[_MemoryCandidate] = []
 
         if any(token in lowered for token in ("prefer", "i like", "keep it concise", "be brief")):
             candidates.append(
@@ -259,8 +330,35 @@ class OpenVikingMemoryStore:
         os.environ.setdefault("OPENVIKING_CONFIG_FILE", str(config_path))
 
 
+async def _await_if_needed(result: object) -> None:
+    if inspect.isawaitable(result):
+        await result
+
+
+def _coerce_dict(raw_payload: str) -> _StoredMetadata:
+    try:
+        parsed = json.loads(raw_payload)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return cast(_StoredMetadata, parsed)
+
+
+def _coerce_vector(value: object) -> list[float]:
+    if not isinstance(value, list):
+        return []
+
+    vectors: list[float] = []
+    for item in value:
+        if isinstance(item, int | float):
+            vectors.append(float(item))
+    return vectors
+
+
 def _slugify(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    lowered = value.lower().strip()
+    return re.sub(r"[^a-z0-9]+", "-", lowered).strip("-")
 
 
 def _openrouter_api_base(url: str) -> str:

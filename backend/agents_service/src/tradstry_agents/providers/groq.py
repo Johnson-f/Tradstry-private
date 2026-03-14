@@ -3,8 +3,21 @@ from __future__ import annotations
 from textwrap import shorten
 
 import httpx
+from pydantic import BaseModel
 
 from tradstry_agents.config import Settings
+
+
+class _GroqCompletionMessage(BaseModel):
+    content: str
+
+
+class _GroqChoice(BaseModel):
+    message: _GroqCompletionMessage
+
+
+class _GroqCompletionResponse(BaseModel):
+    choices: list[_GroqChoice]
 
 
 class GroqChatProvider:
@@ -37,8 +50,9 @@ class GroqChatProvider:
             body = response.json()
 
         try:
-            return body["choices"][0]["message"]["content"].strip()
-        except (KeyError, IndexError, TypeError):
+            parsed = _GroqCompletionResponse.model_validate(body)
+            return parsed.choices[0].message.content.strip()
+        except (ValueError, TypeError, IndexError):
             return self._fallback_response(user_prompt)
 
     def _fallback_response(self, user_prompt: str) -> str:

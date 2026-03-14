@@ -3,8 +3,17 @@ from __future__ import annotations
 import hashlib
 
 import httpx
+from pydantic import BaseModel
 
 from tradstry_agents.config import Settings
+
+
+class _OpenRouterEmbeddingData(BaseModel):
+    embedding: list[float]
+
+
+class _OpenRouterEmbeddingResponse(BaseModel):
+    data: list[_OpenRouterEmbeddingData]
 
 
 class OpenRouterEmbeddingProvider:
@@ -33,8 +42,9 @@ class OpenRouterEmbeddingProvider:
             body = response.json()
 
         try:
-            return list(body["data"][0]["embedding"])
-        except (KeyError, IndexError, TypeError):
+            parsed = _OpenRouterEmbeddingResponse.model_validate(body)
+            return parsed.data[0].embedding
+        except (ValueError, IndexError, TypeError):
             return self._fallback_embedding(text)
 
     def _fallback_embedding(self, text: str) -> list[float]:

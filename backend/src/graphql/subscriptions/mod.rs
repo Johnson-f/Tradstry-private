@@ -1,1 +1,3 @@
-// Subscriptions will be implemented here.
+mod ai_chat;
+
+pub use ai_chat::AiChatSubscription;

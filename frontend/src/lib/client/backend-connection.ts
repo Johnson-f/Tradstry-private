@@ -7,6 +7,13 @@ export function getBackendBaseUrl(): string {
     : BACKEND_URL;
 }
 
+export function getBackendWebSocketUrl(): string {
+  const baseUrl = new URL(getBackendBaseUrl());
+  const wsUrl = new URL("/graphql/ws", baseUrl);
+  wsUrl.protocol = baseUrl.protocol === "https:" ? "wss:" : "ws:";
+  return wsUrl.toString();
+}
+
 export type GraphQLFetcher = <T>(
   query: string,
   variables?: Record<string, unknown>,
